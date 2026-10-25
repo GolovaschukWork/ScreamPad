@@ -1,6 +1,6 @@
 # Bootstrap sequence
 
-This repository kit intentionally contains **governance and project scaffolding only**, not a compilable Tauri application.
+This document records the original bootstrap sequence and the current application setup. The repository now contains a compilable Tauri application; use `package.json` and CI for current commands.
 
 1. Choose product identity, repository slug and bundle identifier with owner.
 2. Initialize Tauri 2 React + TS with official scaffolding, pin runtime versions and lockfile.
@@ -45,8 +45,9 @@ Generated with `create-tauri-app` 4.7.5 (React + TypeScript template, pnpm) and 
 | Tauri CLI / JS API | 2.12.4 |
 | `tauri` / `tauri-build` crates | 2.12.5 / 2.7.4 (resolved in `Cargo.lock`) |
 
-Scripts: `pnpm dev`, `pnpm build`, `pnpm typecheck`, `pnpm tauri <cmd>`. Lint, format and unit-test tooling (ESLint,
-Prettier, Vitest) is intentionally absent until its dependencies are approved. The capability set is `core:default` only.
+Scripts include `pnpm dev`, `pnpm build`, `pnpm typecheck`, `pnpm test:ui`, `pnpm test:scripts`, and `pnpm tauri <cmd>`.
+Vitest is configured for frontend component tests (ADR 0012). There is no frontend lint script in `package.json`; do not
+assume ESLint or Prettier is configured. Consult the current Tauri capability files for actual permissions.
 
 ## CI cost control
 
