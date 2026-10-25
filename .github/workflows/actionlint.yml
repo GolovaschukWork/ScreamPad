@@ -3,12 +3,12 @@ on:
   pull_request:
     paths:
       - ".github/workflows/**"
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/**"
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: actionlint-${{ github.ref }}
+  cancel-in-progress: true
 env:
   ACTIONLINT_VERSION: "1.7.12"
   # SHA-256 of actionlint_1.7.12_linux_amd64.tar.gz. It matches the release's published
