@@ -82,16 +82,17 @@ fn rejected(row: &Row, why: &str) {
 }
 
 #[test]
-fn the_first_migration_creates_the_schema_on_an_empty_database() {
+fn the_migrations_create_the_schema_on_an_empty_database() {
     let (_dir, db) = fresh();
     assert_eq!(db.migration_outcome().from, 0);
-    assert_eq!(db.migration_outcome().to, 1);
+    assert_eq!(db.migration_outcome().to, 2);
     assert!(db.migration_outcome().backup.is_none());
     db.with_writer(|c| {
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
         for (kind, name) in [
             ("table", "sounds"),
+            ("table", "app_settings"),
             ("index", "sounds_display_name"),
             ("trigger", "sounds_media_columns_are_immutable"),
         ] {
@@ -102,12 +103,14 @@ fn the_first_migration_creates_the_schema_on_an_empty_database() {
             )?;
             assert_eq!(count, 1, "{kind} {name}");
         }
-        let strict: i64 = c.query_row(
-            "SELECT strict FROM pragma_table_list WHERE name = 'sounds'",
-            [],
-            |r| r.get(0),
-        )?;
-        assert_eq!(strict, 1, "the table must be STRICT");
+        for table in ["sounds", "app_settings"] {
+            let strict: i64 = c.query_row(
+                "SELECT strict FROM pragma_table_list WHERE name = ?1",
+                [table],
+                |r| r.get(0),
+            )?;
+            assert_eq!(strict, 1, "{table} must be STRICT");
+        }
         Ok(())
     })
     .expect("schema");
@@ -126,7 +129,7 @@ fn running_the_migrations_again_changes_nothing() {
             second.migration_outcome().from,
             second.migration_outcome().to
         ),
-        (1, 1)
+        (2, 2)
     );
     assert!(second.migration_outcome().backup.is_none());
     let count: i64 = second
@@ -393,7 +396,7 @@ fn media_columns_are_immutable_but_the_name_can_change() {
 fn a_failing_later_migration_leaves_the_previous_schema_intact() {
     let dir = TempDir::new();
     let path = dir.file("library.db");
-    let db = Database::open(&path, &migrations()).expect("v1");
+    let db = Database::open(&path, &migrations()).expect("latest");
     db.with_writer(|c| Row::valid().insert(c)).expect("row");
     drop(db);
 
@@ -424,7 +427,7 @@ fn a_failing_later_migration_leaves_the_previous_schema_intact() {
         .expect("rows");
     assert_eq!(
         (version, partial, rows),
-        (1, 0, 1),
+        (2, 0, 1),
         "version, partial schema, data"
     );
 }
@@ -432,10 +435,16 @@ fn a_failing_later_migration_leaves_the_previous_schema_intact() {
 // --- compatibility with databases created by earlier versions -------------------------------------------------------
 
 /// Frozen databases of every shipped schema version, in order. Add `schema_vN.sql` together with every new migration.
-const FIXTURES: &[(usize, &str)] = &[(
-    1,
-    include_str!("../../../tests/fixtures/sqlite/schema_v1.sql"),
-)];
+const FIXTURES: &[(usize, &str)] = &[
+    (
+        1,
+        include_str!("../../../tests/fixtures/sqlite/schema_v1.sql"),
+    ),
+    (
+        2,
+        include_str!("../../../tests/fixtures/sqlite/schema_v2.sql"),
+    ),
+];
 
 fn schema_of(connection: &Connection) -> Vec<(String, String, String)> {
     let mut statement = connection
@@ -520,4 +529,141 @@ fn databases_from_every_earlier_version_upgrade_to_the_latest_schema() {
         })
         .expect("checks");
     }
+}
+
+// --- schema 2: playback options and settings --------------------------------------------------------------------------
+
+fn expect_rejected(connection: &Connection, sql: &str) {
+    assert!(
+        connection.execute(sql, []).is_err(),
+        "must be rejected: {sql}"
+    );
+}
+
+#[test]
+fn new_sounds_get_the_default_playback_options() {
+    let (_dir, db) = fresh();
+    db.with_writer(|c| {
+        Row::valid().insert(c)?;
+        let (gain, mode): (i64, String) =
+            c.query_row("SELECT gain_millibels, play_mode FROM sounds", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?;
+        assert_eq!((gain, mode.as_str()), (0, "overlap"));
+        Ok(())
+    })
+    .expect("defaults");
+}
+
+#[test]
+fn playback_options_are_editable_within_their_ranges_and_media_stays_immutable() {
+    let (_dir, db) = fresh();
+    db.with_writer(|c| {
+        Row::valid().insert(c)?;
+        for gain in [-6000, 0, 600] {
+            c.execute("UPDATE sounds SET gain_millibels = ?1", [gain])?;
+        }
+        for mode in ["overlap", "restart", "ignore", "toggle"] {
+            c.execute("UPDATE sounds SET play_mode = ?1", [mode])?;
+        }
+        for gain in ["-6001", "601", "'loud'", "1.5", "NULL"] {
+            expect_rejected(c, &format!("UPDATE sounds SET gain_millibels = {gain}"));
+        }
+        for mode in ["'loop'", "''", "'OVERLAP'", "NULL", "1"] {
+            expect_rejected(c, &format!("UPDATE sounds SET play_mode = {mode}"));
+        }
+        expect_rejected(c, "UPDATE sounds SET size_bytes = 1");
+        Ok(())
+    })
+    .expect("options");
+}
+
+#[test]
+fn the_settings_row_exists_with_defaults_and_is_the_only_one() {
+    let (_dir, db) = fresh();
+    db.with_writer(|c| {
+        let (id, language, gain): (i64, String, i64) = c.query_row(
+            "SELECT id, language, master_gain_millibels FROM app_settings",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        assert_eq!((id, language.as_str(), gain), (1, "system", 0));
+        expect_rejected(c, "INSERT INTO app_settings (id) VALUES (2)");
+        expect_rejected(c, "UPDATE app_settings SET id = 2");
+        Ok(())
+    })
+    .expect("settings row");
+}
+
+#[test]
+fn settings_values_are_validated_by_the_database() {
+    let (_dir, db) = fresh();
+    db.with_writer(|c| {
+        c.execute(
+            "UPDATE app_settings SET language = 'uk', master_gain_millibels = -6000",
+            [],
+        )?;
+        c.execute("UPDATE app_settings SET language = 'pt-br'", [])?;
+        c.execute("UPDATE app_settings SET language = 'system'", [])?;
+        for language in [
+            "''",
+            "'x'",
+            "'Ukrainian'",
+            "'en/../x'",
+            "'EN'",
+            "'en_US'",
+            "'a b'",
+            "NULL",
+            "5",
+        ] {
+            expect_rejected(c, &format!("UPDATE app_settings SET language = {language}"));
+        }
+        for gain in ["-6001", "1", "'quiet'", "NULL"] {
+            expect_rejected(
+                c,
+                &format!("UPDATE app_settings SET master_gain_millibels = {gain}"),
+            );
+        }
+        expect_rejected(c, "UPDATE app_settings SET updated_at_ms = -1");
+        Ok(())
+    })
+    .expect("settings validation");
+}
+
+#[test]
+fn upgrading_from_schema_one_keeps_rows_and_applies_defaults() {
+    let dir = TempDir::new();
+    let path = dir.file("library.db");
+    {
+        let old = Connection::open(&path).expect("create old database");
+        old.execute_batch(include_str!("../../../tests/fixtures/sqlite/schema_v1.sql"))
+            .expect("load fixture");
+        old.pragma_update(None, "user_version", 1).expect("version");
+    }
+    let db = Database::open(&path, &migrations()).expect("upgrade");
+    assert_eq!(
+        (db.migration_outcome().from, db.migration_outcome().to),
+        (1, 2)
+    );
+    assert!(
+        db.migration_outcome().backup.is_some(),
+        "an upgrade is backed up first"
+    );
+    db.with_writer(|c| {
+        let rows: Vec<(String, i64, String)> = c
+            .prepare("SELECT display_name, gain_millibels, play_mode FROM sounds ORDER BY id")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<_, _>>()?;
+        assert_eq!(
+            rows,
+            vec![
+                ("Airhorn".to_owned(), 0, "overlap".to_owned()),
+                ("Rimshot".to_owned(), 0, "overlap".to_owned()),
+            ]
+        );
+        let settings: i64 = c.query_row("SELECT count(*) FROM app_settings", [], |r| r.get(0))?;
+        assert_eq!(settings, 1);
+        Ok(())
+    })
+    .expect("upgraded data");
 }
