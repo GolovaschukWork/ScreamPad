@@ -102,8 +102,10 @@ Approved as proposed, with these owner clarifications:
   stopped voice keeps its slot for the 5 ms fade, so a `restart` at the limit can be refused as well.
 - New commands: `get_settings`, `update_settings`, `set_sound_options`. `play_sound` now returns `started`, `restarted`,
   `stopped` or `ignored`. New error kind `invalidSetting`.
-- Not yet done: the settings and sound-option UI, and applying the saved language at startup (follow-up change).
+- UI: a settings panel (language, master volume) and per-sound options (gain, play mode) in `src/features/settings` and
+  `src/features/library`. Sliders edit whole decibels and save 300 ms after the last change or on blur. The stored language is
+  applied before the first render (`main.tsx`); if the settings cannot be read, the system language stays.
 
 ## Limits
-- NOT VERIFIED: audible gain and play modes on any hardware (checklist rows 12-14); Windows and Intel macOS.
+- NOT VERIFIED: the look and behaviour of the new controls in the running app (keyboard flow, narrow window); audible gain and play modes on any hardware (checklist rows 12-14); Windows and Intel macOS.
 - A damaged or missing settings row has no repair procedure yet; the commands report `storageCorrupt`.

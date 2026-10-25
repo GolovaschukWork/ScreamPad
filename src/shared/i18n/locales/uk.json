@@ -19,7 +19,15 @@
     "list": "Звуки у вашій бібліотеці",
     "play": "Відтворити «{{name}}»",
     "playShort": "Відтворити",
-    "stopAll": "Зупинити все"
+    "stopAll": "Зупинити все",
+    "options": "Параметри для «{{name}}»",
+    "optionsShort": "Параметри",
+    "gain": "Підсилення звуку",
+    "playMode": "Повторне натискання",
+    "modeOverlap": "Накласти зверху",
+    "modeRestart": "Почати спочатку",
+    "modeIgnore": "Ігнорувати, поки грає",
+    "modeToggle": "Зупинити, якщо грає"
   },
   "audio": {
     "starting": "Запускаємо звук…",
@@ -65,5 +73,14 @@
     "invalidSetting": "Це значення не допускається для цього налаштування.",
     "playbackClipTooLong": "Цей звук задовгий для відтворення.",
     "playbackDecodeTimeout": "Підготовка цього звуку тривала надто довго."
+  },
+  "settings": {
+    "title": "Налаштування",
+    "language": "Мова",
+    "languageSystem": "Як у системі",
+    "languageEn": "English",
+    "languageUk": "Українська",
+    "masterVolume": "Загальна гучність",
+    "loading": "Завантаження налаштувань…"
   }
 }

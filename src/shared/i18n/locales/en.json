@@ -17,7 +17,15 @@
     "list": "Sounds in your library",
     "play": "Play {{name}}",
     "playShort": "Play",
-    "stopAll": "Stop all"
+    "stopAll": "Stop all",
+    "options": "Options for {{name}}",
+    "optionsShort": "Options",
+    "gain": "Sound gain",
+    "playMode": "When played again",
+    "modeOverlap": "Play on top",
+    "modeRestart": "Start over",
+    "modeIgnore": "Ignore while playing",
+    "modeToggle": "Stop if playing"
   },
   "audio": {
     "starting": "Starting audio…",
@@ -63,5 +71,14 @@
     "invalidSetting": "That value is not allowed for this setting.",
     "playbackClipTooLong": "This sound is too long to play.",
     "playbackDecodeTimeout": "Preparing this sound took too long."
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "languageSystem": "Same as the system",
+    "languageEn": "English",
+    "languageUk": "Українська",
+    "masterVolume": "Master volume",
+    "loading": "Loading settings…"
   }
 }
