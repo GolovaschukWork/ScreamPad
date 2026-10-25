@@ -79,6 +79,11 @@ jobs:
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test --locked
+      # `cargo test` regenerates the bindings; the committed file must match (ADR 0004).
+      # One runner is enough, and Windows checkouts may convert line endings.
+      - name: Generated IPC bindings are up to date
+        if: matrix.os == 'macos-latest'
+        run: git diff --exit-code -- src/shared/ipc/bindings.ts
   # Single status to require in branch protection: skipped jobs count as passing, failures and cancellations do not.
   ci-gate:
     if: always()
