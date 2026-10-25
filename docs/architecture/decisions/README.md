@@ -8,5 +8,6 @@ Accepted product decisions from discovery:
 
 Proposed (awaiting owner decision):
 - 0004 Typed IPC contract (`ts-rs` vs `tauri-specta`; spike evidence included)
+- 0006 Audio engine threading, buffering, callback safety and device lifecycle
 
-Future ADRs required for: audio callback contracts, URL providers, FFmpeg distribution, non-destructive edit schema, license and signing provider.
+Future ADRs required for: URL providers, FFmpeg distribution, non-destructive edit schema, license and signing provider.
