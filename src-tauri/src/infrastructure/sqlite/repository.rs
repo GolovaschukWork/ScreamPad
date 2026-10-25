@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 use super::{Database, StorageError};
 use crate::application::ports::{InsertOutcome, MediaRef, SettingsRepository, SoundRepository};
 use crate::domain::playback::{MasterGain, PlayMode, SoundGain};
-use crate::domain::settings::{Language, Settings};
+use crate::domain::settings::{Language, Settings, Theme};
 use crate::domain::sound::{AudioFormat, ContentHash, NewSound, Sound, StorageKey};
 
 const COLUMNS: &str = "id, content_hash, display_name, original_file_name, managed_path, format, duration_ms, sample_rate, \
@@ -161,7 +161,7 @@ impl SqliteSettingsRepository {
     }
 }
 
-const SETTINGS_COLUMNS: &str = "language, master_gain_millibels, updated_at_ms";
+const SETTINGS_COLUMNS: &str = "language, master_gain_millibels, updated_at_ms, theme";
 
 impl SettingsRepository for SqliteSettingsRepository {
     fn get(&self) -> Result<Settings, StorageError> {
@@ -173,13 +173,14 @@ impl SettingsRepository for SqliteSettingsRepository {
         &self,
         language: Language,
         master_gain: MasterGain,
+        theme: Theme,
         now_ms: i64,
     ) -> Result<Settings, StorageError> {
         self.database.with_writer(|writer| {
             let transaction = writer.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let changed = transaction.execute(
-                "UPDATE app_settings SET language = ?1, master_gain_millibels = ?2, updated_at_ms = max(?3, 0) WHERE id = 1",
-                params![language.as_str(), master_gain.millibels(), now_ms],
+                "UPDATE app_settings SET language = ?1, master_gain_millibels = ?2, theme = ?3, updated_at_ms = max(?4, 0) WHERE id = 1",
+                params![language.as_str(), master_gain.millibels(), theme.as_str(), now_ms],
             )?;
             if changed == 0 {
                 // The migration creates the row; if it is gone the database was altered by hand. Do not recreate it.
@@ -202,17 +203,19 @@ fn read_settings(connection: &Connection) -> Result<Settings, StorageError> {
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             },
         )
         .optional()?;
-    let (language, gain, updated_at_ms) = row.ok_or(StorageError::Corrupt)?;
+    let (language, gain, updated_at_ms, theme) = row.ok_or(StorageError::Corrupt)?;
     Ok(Settings {
         language: Language::parse(&language).map_err(|_| StorageError::Corrupt)?,
         master_gain: i32::try_from(gain)
             .ok()
             .and_then(|millibels| MasterGain::from_millibels(millibels).ok())
             .ok_or(StorageError::Corrupt)?,
+        theme: Theme::parse(&theme).ok_or(StorageError::Corrupt)?,
         updated_at_ms,
     })
 }

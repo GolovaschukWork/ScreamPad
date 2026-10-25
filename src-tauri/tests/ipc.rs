@@ -159,7 +159,7 @@ fn library_stats_reports_the_schema_and_the_row_count() {
         )),
     )
     .expect("command failed");
-    assert_eq!(empty, json!({ "soundCount": 0, "schemaVersion": 2 }));
+    assert_eq!(empty, json!({ "soundCount": 0, "schemaVersion": 3 }));
 
     let database = Database::open(&dir.join("library.db"), &migrations()).expect("reopen");
     database
@@ -180,7 +180,7 @@ fn library_stats_reports_the_schema_and_the_row_count() {
         )),
     )
     .expect("command failed");
-    assert_eq!(one, json!({ "soundCount": 1, "schemaVersion": 2 }));
+    assert_eq!(one, json!({ "soundCount": 1, "schemaVersion": 3 }));
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -835,16 +835,16 @@ fn settings_default_then_persist_what_the_user_chose() {
     let (dir, state) = library_with_two_sounds("settings");
     assert_eq!(
         call_with_storage("get_settings", json!({}), &state),
-        Ok(json!({ "language": "system", "masterGainMillibels": 0 }))
+        Ok(json!({ "language": "system", "masterGainMillibels": 0, "theme": "system" }))
     );
     let saved = call_with_storage(
         "update_settings",
-        json!({ "language": "uk", "masterGainMillibels": -1500 }),
+        json!({ "language": "uk", "masterGainMillibels": -1500, "theme": "dark" }),
         &state,
     );
     assert_eq!(
         saved,
-        Ok(json!({ "language": "uk", "masterGainMillibels": -1500 }))
+        Ok(json!({ "language": "uk", "masterGainMillibels": -1500, "theme": "dark" }))
     );
     assert_eq!(
         call_with_storage("get_settings", json!({}), &state),
@@ -869,7 +869,7 @@ fn invalid_settings_are_rejected_without_changing_anything() {
         assert_eq!(
             call_with_storage(
                 "update_settings",
-                json!({ "language": language, "masterGainMillibels": gain }),
+                json!({ "language": language, "masterGainMillibels": gain, "theme": "system" }),
                 &state
             ),
             Err(json!({ "kind": "invalidSetting" })),
@@ -878,7 +878,7 @@ fn invalid_settings_are_rejected_without_changing_anything() {
     }
     assert_eq!(
         call_with_storage("get_settings", json!({}), &state),
-        Ok(json!({ "language": "system", "masterGainMillibels": 0 }))
+        Ok(json!({ "language": "system", "masterGainMillibels": 0, "theme": "system" }))
     );
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -899,7 +899,7 @@ fn a_missing_settings_row_is_reported_not_hidden() {
     assert_eq!(
         call_with_storage(
             "update_settings",
-            json!({ "language": "en", "masterGainMillibels": 0 }),
+            json!({ "language": "en", "masterGainMillibels": 0, "theme": "system" }),
             &state
         ),
         Err(json!({ "kind": "storageCorrupt" }))
@@ -918,7 +918,7 @@ fn updating_settings_applies_the_master_volume_to_the_running_output() {
     let louder = |gain: i32| {
         let updated = call(
             "update_settings",
-            json!({ "language": "system", "masterGainMillibels": gain }),
+            json!({ "language": "system", "masterGainMillibels": gain, "theme": "system" }),
             Parts {
                 storage: Some(StorageState::Ready(storage.library().expect("ready"))),
                 playback: Some(PlaybackState::Ready(Arc::clone(&service))),
@@ -956,7 +956,7 @@ fn settings_can_be_saved_while_audio_is_unavailable() {
     let (dir, state) = library_with_two_sounds("settings-no-audio");
     let saved = call(
         "update_settings",
-        json!({ "language": "en", "masterGainMillibels": -300 }),
+        json!({ "language": "en", "masterGainMillibels": -300, "theme": "light" }),
         Parts {
             storage: Some(StorageState::Ready(state.library().expect("ready"))),
             playback: Some(PlaybackState::Unavailable(AppError::Internal)),
@@ -965,7 +965,7 @@ fn settings_can_be_saved_while_audio_is_unavailable() {
     );
     assert_eq!(
         saved,
-        Ok(json!({ "language": "en", "masterGainMillibels": -300 }))
+        Ok(json!({ "language": "en", "masterGainMillibels": -300, "theme": "light" }))
     );
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -1088,4 +1088,44 @@ fn preference_failures_map_to_typed_errors() {
             "{error:?}"
         );
     }
+}
+
+#[test]
+fn an_unknown_theme_never_reaches_the_service_and_changes_nothing() {
+    let (dir, state) = library_with_two_sounds("theme-invalid");
+    for theme in ["blue", "Dark", "", "auto"] {
+        let refused = call_with_storage(
+            "update_settings",
+            json!({ "language": "en", "masterGainMillibels": 0, "theme": theme }),
+            &state,
+        );
+        assert!(
+            refused.is_err(),
+            "{theme:?} must not be accepted: {refused:?}"
+        );
+    }
+    assert_eq!(
+        call_with_storage("get_settings", json!({}), &state),
+        Ok(json!({ "language": "system", "masterGainMillibels": 0, "theme": "system" }))
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn the_theme_is_stored_with_the_other_settings() {
+    let (dir, state) = library_with_two_sounds("theme-stored");
+    for theme in ["dark", "light", "system"] {
+        let saved = call_with_storage(
+            "update_settings",
+            json!({ "language": "uk", "masterGainMillibels": -600, "theme": theme }),
+            &state,
+        )
+        .expect("save");
+        assert_eq!(saved["theme"], theme);
+        assert_eq!(
+            call_with_storage("get_settings", json!({}), &state).expect("get")["theme"],
+            theme
+        );
+    }
+    let _ = std::fs::remove_dir_all(dir);
 }

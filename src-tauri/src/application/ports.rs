@@ -12,7 +12,7 @@ use super::error::StorageError;
 use crate::audio::backend::OutputFormat;
 use crate::audio::clip::Clip;
 use crate::domain::playback::{MasterGain, PlayMode, SoundGain};
-use crate::domain::settings::{Language, Settings};
+use crate::domain::settings::{Language, Settings, Theme};
 use crate::domain::sound::{AudioFormat, ContentHash, NewSound, Sound, StorageKey};
 
 /// What the application knows about a file it is about to read.
@@ -156,6 +156,7 @@ pub trait SettingsRepository: Send + Sync {
         &self,
         language: Language,
         master_gain: MasterGain,
+        theme: Theme,
         now_ms: i64,
     ) -> Result<Settings, StorageError>;
 }

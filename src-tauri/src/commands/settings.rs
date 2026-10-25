@@ -4,8 +4,37 @@ use tauri::State;
 
 use super::error::AppError;
 use super::library::{PlayModeDto, SoundSummary, summarize};
-use crate::domain::settings::Settings;
+use crate::domain::settings::{Settings, Theme};
 use crate::state::{PlaybackState, StorageState};
+
+/// The interface theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ThemeDto {
+    System,
+    Dark,
+    Light,
+}
+
+impl From<Theme> for ThemeDto {
+    fn from(theme: Theme) -> Self {
+        match theme {
+            Theme::System => Self::System,
+            Theme::Dark => Self::Dark,
+            Theme::Light => Self::Light,
+        }
+    }
+}
+
+impl From<ThemeDto> for Theme {
+    fn from(theme: ThemeDto) -> Self {
+        match theme {
+            ThemeDto::System => Self::System,
+            ThemeDto::Dark => Self::Dark,
+            ThemeDto::Light => Self::Light,
+        }
+    }
+}
 
 /// Application settings as the UI sees them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
@@ -15,6 +44,7 @@ pub struct SettingsDto {
     pub language: String,
     /// Master volume in millibels (1/100 dB), -6000..=0.
     pub master_gain_millibels: i32,
+    pub theme: ThemeDto,
 }
 
 impl From<Settings> for SettingsDto {
@@ -22,6 +52,7 @@ impl From<Settings> for SettingsDto {
         Self {
             language: settings.language.as_str().to_owned(),
             master_gain_millibels: settings.master_gain.millibels(),
+            theme: settings.theme.into(),
         }
     }
 }
@@ -38,7 +69,7 @@ pub async fn get_settings(storage: State<'_, StorageState>) -> Result<SettingsDt
         .map_err(AppError::from)
 }
 
-/// Stores the language and the master volume, and applies the volume to the audio output.
+/// Stores the language, the master volume and the theme, and applies the volume to the audio output.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_settings(
@@ -46,13 +77,15 @@ pub async fn update_settings(
     playback: State<'_, PlaybackState>,
     language: String,
     master_gain_millibels: i32,
+    theme: ThemeDto,
 ) -> Result<SettingsDto, AppError> {
     let library = storage.library()?;
     let service = playback.service().ok();
     tauri::async_runtime::spawn_blocking(move || -> Result<SettingsDto, AppError> {
-        let settings = library
-            .preferences
-            .update_settings(&language, master_gain_millibels)?;
+        let settings =
+            library
+                .preferences
+                .update_settings(&language, master_gain_millibels, theme.into())?;
         if let Some(service) = service {
             // The value is stored either way; if the engine is busy it picks the stored value up at the next start.
             let _ = service.apply_master_gain(settings.master_gain);

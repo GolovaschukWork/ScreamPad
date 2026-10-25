@@ -79,6 +79,10 @@
     "languageEn": "English",
     "languageUk": "Українська",
     "masterVolume": "Master volume",
-    "loading": "Loading settings…"
+    "loading": "Loading settings…",
+    "theme": "Theme",
+    "themeSystem": "Same as the system",
+    "themeDark": "Dark",
+    "themeLight": "Light"
   }
 }

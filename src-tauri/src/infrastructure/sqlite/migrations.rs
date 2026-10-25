@@ -25,6 +25,10 @@ pub const MIGRATIONS: &[ShippedMigration] = &[
         name: "0002_settings_and_sound_options",
         sql: include_str!("../../../migrations/0002_settings_and_sound_options.sql"),
     },
+    ShippedMigration {
+        name: "0003_theme_setting",
+        sql: include_str!("../../../migrations/0003_theme_setting.sql"),
+    },
 ];
 
 /// FNV-1a checksums recorded when each migration shipped, same order as `MIGRATIONS`.
@@ -32,6 +36,7 @@ pub const MIGRATIONS: &[ShippedMigration] = &[
 pub const SHIPPED_CHECKSUMS: &[(&str, u64)] = &[
     ("0001_create_sounds", 0x6f9d724e549f738c),
     ("0002_settings_and_sound_options", 0x9cdb6854285b5618),
+    ("0003_theme_setting", 0xd8500bd6a1846033),
 ];
 
 /// Non-cryptographic checksum, enough to detect an accidental edit without adding a dependency.

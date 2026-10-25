@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import type { AppError } from "../../shared/ipc/bindings";
+import type { AppError, ThemeDto } from "../../shared/ipc/bindings";
 import { errorText } from "../../shared/ipc/errors";
 import { DbSlider } from "./DbSlider";
 import { useSettings } from "./useSettings";
@@ -19,6 +19,13 @@ export function SettingsPanel() {
     uk: t("settings.languageUk"),
   };
 
+  const themeNames: Record<ThemeDto, string> = {
+    system: t("settings.themeSystem"),
+    dark: t("settings.themeDark"),
+    light: t("settings.themeLight"),
+  };
+  const themes: readonly ThemeDto[] = ["system", "dark", "light"];
+
   return (
     <section aria-label={t("settings.title")}>
       <h2>{t("settings.title")}</h2>
@@ -31,11 +38,29 @@ export function SettingsPanel() {
               {t("settings.language")}{" "}
               <select
                 value={state.settings.language}
-                onChange={(event) => void save(event.currentTarget.value, state.settings.masterGainMillibels)}
+                onChange={(event) => void save(event.currentTarget.value, state.settings.masterGainMillibels, state.settings.theme)}
               >
                 {Object.entries(languageNames).map(([code, name]) => (
                   <option key={code} value={code}>
                     {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </p>
+          <p>
+            <label>
+              {t("settings.theme")}{" "}
+              <select
+                value={state.settings.theme}
+                onChange={(event) => {
+                  const theme = themes.find((candidate) => candidate === event.currentTarget.value);
+                  if (theme) void save(state.settings.language, state.settings.masterGainMillibels, theme);
+                }}
+              >
+                {themes.map((theme) => (
+                  <option key={theme} value={theme}>
+                    {themeNames[theme]}
                   </option>
                 ))}
               </select>
@@ -47,7 +72,7 @@ export function SettingsPanel() {
             minMillibels={MASTER_MIN_MILLIBELS}
             maxMillibels={MASTER_MAX_MILLIBELS}
             locale={i18n.language}
-            onCommit={(millibels) => void save(state.settings.language, millibels)}
+            onCommit={(millibels) => void save(state.settings.language, millibels, state.settings.theme)}
           />
         </>
       )}

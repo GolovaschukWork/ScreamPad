@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::error::StorageError;
 use super::ports::{Clock, SettingsRepository, SoundRepository};
 use crate::domain::playback::{MasterGain, PlayMode, SoundGain};
-use crate::domain::settings::{Language, Settings};
+use crate::domain::settings::{Language, Settings, Theme};
 use crate::domain::sound::Sound;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,18 +54,19 @@ impl PreferencesService {
         self.settings.get()
     }
 
-    /// Validates and stores the language and the master volume (millibels, -6000..=0).
+    /// Validates and stores the language, the master volume (millibels, -6000..=0) and the theme.
     pub fn update_settings(
         &self,
         language: &str,
         master_gain_millibels: i32,
+        theme: Theme,
     ) -> Result<Settings, PreferencesError> {
         let language = Language::parse(language).map_err(|_| PreferencesError::InvalidValue)?;
         let master_gain = MasterGain::from_millibels(master_gain_millibels)
             .map_err(|_| PreferencesError::InvalidValue)?;
         Ok(self
             .settings
-            .save(language, master_gain, self.clock.now_ms())?)
+            .save(language, master_gain, theme, self.clock.now_ms())?)
     }
 
     /// Validates and stores a sound's gain (millibels, -6000..=600) and play mode.
