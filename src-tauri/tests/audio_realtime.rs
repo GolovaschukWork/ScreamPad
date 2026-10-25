@@ -63,7 +63,7 @@ fn rendering_never_allocates_or_frees_memory() {
     let (_vec, allocations, _) = counted(|| Vec::<u8>::with_capacity(4096));
     assert!(allocations >= 1, "the counting allocator is not active");
 
-    let (mut mixer, mut handle) = mixer(2);
+    let (mut mixer, mut handle) = mixer(2, 48_000);
     let short = Clip::new(vec![0.01; 2 * 64], 2, 48_000).expect("short clip");
     let long = Clip::new(
         (0..2 * 4800).map(|i| ((i % 100) as f32) / 400.0).collect(),

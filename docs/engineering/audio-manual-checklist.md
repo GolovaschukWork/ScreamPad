@@ -18,14 +18,15 @@ Setup: start the app (`pnpm tauri dev`), import a clip of a few seconds, and pla
 | 7 | Disable every output device (no output at all) | The app shows that no audio output is available and does not crash; enabling a device recovers it |
 | 8 | Trigger the same sound 20 times quickly | No crash and no growing memory; at most 32 sounds overlap, extra triggers are ignored |
 | 9 | Start a long sound and close the window | The app exits cleanly, with no hanging process |
-| 10 | Play a sound from an AAC (m4a) file | Known limitation: it starts a little late (the encoder delay is not trimmed yet); note how long |
+| 10 | Play a sound from an AAC (m4a) file and from a WAV file of similar content | The AAC sound starts as promptly as the WAV one (its encoder delay is trimmed from the file's edit list). Files whose encoder wrote no edit list may still start slightly late; note any you find |
+| 11 | Press Stop all while a loud sound plays | The sound dies away in a few milliseconds with no click or pop |
 
 ## Results
 
 Fill in one row per platform and date. Use PASS, FAIL (with a note) or NOT RUN.
 
-| Platform | Date | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | Tester |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| macOS 14+ arm64 | | | | | | | | | | | | |
-| macOS 14+ x64 | | | | | | | | | | | | |
-| Windows 11 x64 | | | | | | | | | | | | |
+| Platform | Date | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | Tester |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| macOS 14+ arm64 | | | | | | | | | | | | | |
+| macOS 14+ x64 | | | | | | | | | | | | | |
+| Windows 11 x64 | | | | | | | | | | | | | |

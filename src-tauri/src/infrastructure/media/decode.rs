@@ -58,6 +58,13 @@ pub fn decode_clip(
     if frames == 0 || !shape_ok || source.len() as u64 != frames * source_channels as u64 {
         return Err(ProbeError::Invalid);
     }
+    // Drop the encoder's priming and padding frames so that the sound starts when it is triggered.
+    let (skip, keep) = opened.playable_range(frames);
+    source.truncate(usize::try_from((skip + keep) * source_channels as u64).unwrap_or(usize::MAX));
+    source.drain(..usize::try_from(skip * source_channels as u64).unwrap_or(0));
+    if source.is_empty() {
+        return Err(ProbeError::Invalid);
+    }
 
     // Resample at the source channel count first, so a mono file is not resampled twice.
     let resampled = if source_rate == target.sample_rate {
@@ -232,21 +239,53 @@ mod tests {
         }
     }
 
-    /// Known limitation: symphonia does not trim the encoder delay of MP4/AAC (its format table lists "Gapless: No" for
-    /// ISO/MP4), so an AAC clip starts with silence. The fixture is 0.25 s long and decodes to about 0.38 s at 48 kHz,
-    /// roughly 1000 frames of the source rate. For a soundboard that is audible as a slight delay and must be trimmed
-    /// before AAC files are treated as instant-trigger clips.
+    /// symphonia does not apply the MP4 edit list, so the decoder trims the encoder delay itself. Without that, an AAC clip
+    /// starts with about a thousand frames of near-silence, which is heard as a late start.
     #[test]
-    fn aac_clips_carry_the_encoder_delay_until_it_is_trimmed() {
-        let clip = decode("tone.m4a", STEREO_48K).expect("m4a");
-        assert!(clip.samples().iter().all(|s| s.is_finite()));
-        assert!(rms(clip.samples()) > 0.01);
-        let expected = 12_000;
-        assert!(
-            clip.frames() > expected,
-            "if this fails the delay is now trimmed: update this test and the docs"
+    fn aac_clips_start_at_once_and_have_the_length_of_the_original() {
+        let native = decode(
+            "tone.m4a",
+            OutputFormat {
+                sample_rate: 8_000,
+                channels: 1,
+            },
+        )
+        .expect("m4a");
+        assert_eq!(
+            native.frames(),
+            2_000,
+            "0.25 s at 8 kHz, the same as the WAV source"
         );
-        assert!(clip.frames() < 3 * expected, "{} frames", clip.frames());
+
+        // The tone is audible from the very first frames (the 1024 priming frames are gone).
+        let start = &native.samples()[..80];
+        assert!(
+            rms(start) > 0.02,
+            "the clip begins with silence: rms {}",
+            rms(start)
+        );
+
+        let device = decode("tone.m4a", STEREO_48K).expect("m4a on the device");
+        assert!(
+            (11_900..=12_100).contains(&device.frames()),
+            "{} frames",
+            device.frames()
+        );
+    }
+
+    #[test]
+    fn other_formats_are_not_trimmed() {
+        for name in ["tone.wav", "tone.flac"] {
+            let clip = decode(
+                name,
+                OutputFormat {
+                    sample_rate: 8_000,
+                    channels: 1,
+                },
+            )
+            .expect(name);
+            assert_eq!(clip.frames(), 2_000, "{name}");
+        }
     }
 
     #[test]

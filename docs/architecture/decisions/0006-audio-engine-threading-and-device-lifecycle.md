@@ -133,9 +133,7 @@ IPC commands are the next step.
 - **Decoding:** a clip is decoded at the file's channel count, resampled to the device rate, then fitted to the device channel
   count (mono is copied, several channels are averaged into mono, surround keeps only its front pair). The clip length limit is a
   caller-supplied cap, about 23 MB per minute of stereo at 48 kHz.
-- **Known limitations:** `symphonia` does not trim the encoder delay of MP4/AAC (its table lists gapless as unsupported for
-  ISO/MP4), so an AAC clip starts with silence of roughly 1000 source frames; this must be trimmed before AAC counts as an
-  instant-trigger sound. Surround downmix is not implemented. Stopping a voice cuts it abruptly (no fade), which can click.
+- **Known limitations:** surround downmix is not implemented (the front pair is kept).
 - **Evidence:** 23 mixer tests with deterministic input; `tests/audio_realtime.rs` installs a counting global allocator and
   asserts **zero allocations and zero deallocations** inside `render` over 600 rounds that include rejections, stops and clips
   whose only owner is the voice. It was mutation-checked: allocating inside `render`, or dropping a clip there, makes it fail.
@@ -191,6 +189,23 @@ Implemented in `application/playback.rs`, `application/clip_cache.rs`, `commands
   session and none in the following ten. Not enough to state a glitch rate.
 - **Not done:** no gain control in the UI (fixed at unity); AAC delay is still untrimmed; sounds are one-shot (no loop,
   retrigger policy or per-sound volume yet); no global shortcuts or tray playback.
+
+## Implementation notes (AAC trimming and soft stop, 2026-10-25)
+- **AAC encoder delay is trimmed.** `symphonia` 0.6.1 parses the MP4 `elst` edit list but does not apply it (its source says so),
+  and leaves `Track::delay` and `padding` unset for MP4, so an AAC clip began with about a thousand frames of near-silence and
+  its duration was overstated. `infrastructure/media/mp4_edit.rs` reads the single plain edit of the audio track with a
+  bounds-checked box reader (version 0 and 1, movie time converted to media time) and the probe and the clip decoder drop the
+  priming and padding frames. Anything unexpected (several edits, an empty edit, a changed rate, a timescale that is not the
+  sample rate, damaged or hostile boxes) means no trim, never a failure. The 0.25 s fixture now decodes to exactly 2000 frames
+  at 8 kHz and its duration is 250 ms. Files whose encoder wrote no edit list are not trimmed.
+- **Stopping fades out.** A stopped voice ramps linearly to silence over 5 ms (240 frames at 48 kHz, scaled to any rate) instead of
+  being cut, which clicks. A voice stopped before it was ever heard is dropped without a sound, stopping twice does not lengthen
+  the fade, and the fade runs inside the allocation-free render path (the real-time test covers stops).
+- **Evidence:** 8 tests of the MP4 reader including every truncation and every single-byte corruption of a real file; 8 fade tests
+  including a check that no step between neighbouring samples exceeds one ramp step, and a mutation check (replacing the fade by a
+  cut fails four tests).
+- **Observed on real hardware:** the default output of the development Mac ran at 24 kHz stereo in one session and 48 kHz stereo in
+  earlier ones; the whole path including resampling worked at both, with no xruns in these runs.
 
 ## Risks and decisions for the owner
 1. **Panic strategy (decided by the owner on 2026-10-25): keep the default `panic = "unwind"`.** The Tauri template's
