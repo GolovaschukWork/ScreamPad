@@ -20,13 +20,16 @@ Setup: start the app (`pnpm tauri dev`), import a clip of a few seconds, and pla
 | 9 | Start a long sound and close the window | The app exits cleanly, with no hanging process |
 | 10 | Play a sound from an AAC (m4a) file and from a WAV file of similar content | The AAC sound starts as promptly as the WAV one (its encoder delay is trimmed from the file's edit list). Files whose encoder wrote no edit list may still start slightly late; note any you find |
 | 11 | Press Stop all while a loud sound plays | The sound dies away in a few milliseconds with no click or pop |
+| 12 | Set a sound's gain to -20 dB, then +6 dB, and play it each time | The sound is clearly quieter, then louder than at 0 dB; +6 dB does not crackle on a loud sound (the mixer clamps, it does not limit) |
+| 13 | Lower the master volume, then change the default output device and play a sound | The master volume still applies on the new device and after restarting the app |
+| 14 | Set a long sound to each play mode and press it three times | Overlap: layers. Restart: starts over each time. Ignore: nothing happens while it plays. Toggle: the second press stops it, the third starts it |
 
 ## Results
 
 Fill in one row per platform and date. Use PASS, FAIL (with a note) or NOT RUN.
 
-| Platform | Date | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | Tester |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| macOS 14+ arm64 | | | | | | | | | | | | | |
-| macOS 14+ x64 | | | | | | | | | | | | | |
-| Windows 11 x64 | | | | | | | | | | | | | |
+| Platform | Date | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | Tester |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| macOS 14+ arm64 | | | | | | | | | | | | | | | | |
+| macOS 14+ x64 | | | | | | | | | | | | | | | | |
+| Windows 11 x64 | | | | | | | | | | | | | | | | |
