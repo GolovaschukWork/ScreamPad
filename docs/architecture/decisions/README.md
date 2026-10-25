@@ -11,6 +11,7 @@ Accepted decisions:
 - 0008 Localization and translatable errors (English and Ukrainian, i18next)
 - 0009 Backend-owned file selection (native dialog opened from Rust)
 
-Proposed (awaiting owner decision): none.
+Proposed (awaiting owner decision):
+- 0010 Application settings and per-sound playback options (schema 2 proposal)
 
 Future ADRs required for: URL providers, FFmpeg distribution, non-destructive edit schema, license and signing provider.
