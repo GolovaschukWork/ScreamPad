@@ -24,7 +24,7 @@ Setup on a developer machine: `nvm install` (reads `.nvmrc`), `corepack enable`,
 installer with its published SHA-256 verified; the toolchain is then fetched from `rust-toolchain.toml` on first use.
 Versions are bumped deliberately in a dedicated PR, never by "latest".
 
-Temporary application identity for the internal scaffold only: package `soundboard-desktop`, bundle identifier
+Product name: **ScreamPad** (owner-approved). Temporary internal identifiers, kept until publisher and domain are decided: package `soundboard-desktop`, bundle identifier
 `dev.local.soundboard`. It must never be used for production signing, the updater, or public releases. `package.json`
 is `private` and has no `license` field until the owner selects an SPDX identifier.
 

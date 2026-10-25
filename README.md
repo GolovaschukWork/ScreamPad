@@ -1,6 +1,6 @@
 # Desktop soundboard — project governance starter
 
-Product name: **TBD** · License: **TBD**
+Product name: **ScreamPad** · License: **TBD**
 
 This is the agreed **engineering governance kit**, not an application implementation. It contains Claude Code instructions, rules, agents, skills, permissions/hooks, architecture docs, ADRs, Git and release policies, templates, and bootstrap validation CI.
 
