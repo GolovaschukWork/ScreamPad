@@ -24,6 +24,8 @@ rusqlite = { version = "=0.40.2", features = ["bundled"] }
 rusqlite_migration = "=2.6.0"
 # SHA-256 for content hashes (RustCrypto, MIT OR Apache-2.0, MSRV 1.88).
 sha2 = "=0.11.1"
+# Native file dialog, opened by the backend only. The window gets no dialog:* permission (ADR 0009).
+tauri-plugin-dialog = "=2.8.3"
 symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "flac", "mp3", "ogg", "vorbis", "isomp4", "aac", "id3v2"] }
 
 [dev-dependencies]

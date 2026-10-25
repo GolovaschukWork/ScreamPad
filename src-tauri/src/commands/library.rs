@@ -3,11 +3,13 @@ use specta::Type;
 use tauri::State;
 
 use super::error::AppError;
+use crate::application::cancel::CancelToken;
 use crate::application::error::StorageError;
+use crate::application::import::ImportOutcome;
 use crate::application::ports::SoundRepository;
 use crate::domain::sound::Sound;
 use crate::infrastructure::sqlite::Database;
-use crate::state::{MediaStatus, StorageState};
+use crate::state::{MediaStatus, PickerState, StorageState};
 
 /// Summary of the sound library.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
@@ -119,4 +121,42 @@ pub async fn check_sound_media(state: State<'_, StorageState>, id: u32) -> Resul
         MediaStatus::Missing => Err(AppError::MediaMissing),
         MediaStatus::Damaged => Err(AppError::MediaCorrupt),
     }
+}
+
+/// Result of a completed import.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResult {
+    pub sound: SoundSummary,
+    /// The same bytes were already in the library, so nothing was added.
+    pub already_in_library: bool,
+}
+
+/// Asks the user for an audio file with a native dialog opened by the backend, then imports it. `None` means the user
+/// cancelled the dialog. The webview never supplies a path, so it cannot make the app read an arbitrary file.
+#[tauri::command]
+#[specta::specta]
+pub async fn import_sound(
+    storage: State<'_, StorageState>,
+    picker: State<'_, PickerState>,
+) -> Result<Option<ImportResult>, AppError> {
+    let library = storage.library()?;
+    let picker = std::sync::Arc::clone(&picker.0);
+    tauri::async_runtime::spawn_blocking(move || -> Result<Option<ImportResult>, AppError> {
+        let Some(path) = picker.pick_audio_file() else {
+            return Ok(None);
+        };
+        let (sound, already_in_library) =
+            match library.importer.import(&path, &CancelToken::new())? {
+                ImportOutcome::Imported(sound) => (sound, false),
+                ImportOutcome::AlreadyInLibrary(sound) => (sound, true),
+            };
+        let summary = summarize(&sound, library.status_of(sound.id))?;
+        Ok(Some(ImportResult {
+            sound: summary,
+            already_in_library,
+        }))
+    })
+    .await
+    .map_err(|_| AppError::Internal)?
 }

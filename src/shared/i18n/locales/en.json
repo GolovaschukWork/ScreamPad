@@ -1,8 +1,20 @@
 {
   "library": {
     "opening": "Opening the library…",
-    "ready_one": "Library ready: {{count}} sound (schema {{schema}}).",
-    "ready_other": "Library ready: {{count}} sounds (schema {{schema}})."
+    "count_one": "{{count}} sound",
+    "count_other": "{{count}} sounds",
+    "empty": "No sounds yet. Import an audio file to get started."
+  },
+  "import": {
+    "button": "Import sound…",
+    "running": "Importing…",
+    "done": "Imported “{{name}}”.",
+    "alreadyInLibrary": "“{{name}}” is already in your library."
+  },
+  "sound": {
+    "missing": "File missing",
+    "damaged": "File damaged",
+    "list": "Sounds in your library"
   },
   "errors": {
     "storageBusy": "The library is busy. Try again in a moment.",
