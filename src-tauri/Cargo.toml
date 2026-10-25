@@ -1,0 +1,23 @@
+[package]
+name = "soundboard-desktop"
+version = "0.1.0"
+description = "Cross-platform desktop soundboard (name TBD)"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[lib]
+name = "soundboard_desktop_lib"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
