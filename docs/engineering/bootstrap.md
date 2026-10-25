@@ -29,3 +29,21 @@ Temporary application identity for the internal scaffold only: package `soundboa
 is `private` and has no `license` field until the owner selects an SPDX identifier.
 
 CI: `.github/workflows/actionlint.yml` lints workflows with a pinned actionlint binary whose SHA-256 is verified and cached.
+
+## Application scaffold
+
+Generated with `create-tauri-app` 4.7.5 (React + TypeScript template, pnpm) and then reduced: the demo `greet` command, the
+`opener` plugin and its permission, the mobile entry point and serde dependencies were removed; a strict CSP was added;
+`package.json` versions are exact and the lockfiles (`pnpm-lock.yaml`, `src-tauri/Cargo.lock`) are committed.
+
+| Package | Version |
+| --- | --- |
+| Vite | 8.3.5 |
+| TypeScript | 6.0.3 (7.x is available but not adopted until verified with the Vite/React toolchain) |
+| React / React DOM | 19.3.1 |
+| `@vitejs/plugin-react` | 6.1.2 |
+| Tauri CLI / JS API | 2.12.4 |
+| `tauri` / `tauri-build` crates | 2.12.5 / 2.7.4 (resolved in `Cargo.lock`) |
+
+Scripts: `pnpm dev`, `pnpm build`, `pnpm typecheck`, `pnpm tauri <cmd>`. Lint, format and unit-test tooling (ESLint,
+Prettier, Vitest) is intentionally absent until its dependencies are approved. The capability set is `core:default` only.

@@ -1,11 +1,11 @@
-# Activate after application scaffold exists
+# Remaining CI work
 
-Add `.github/workflows/ci.yml` with jobs for:
-- pnpm install --frozen-lockfile, lint, typecheck, test, build
-- cargo fmt --check, clippy -- -D warnings, test
-- native Windows 11 x64 and macOS runners (arm64/x64, matching Tauri toolchains)
-- caching, minimal permissions, pinned major/revision action versions
+`ci.yml` (frontend typecheck and build, native fmt/clippy/test on macOS arm64, macOS x64 and Windows x64) is active.
 
-Do not label application CI as passing until actual scripts and builds exist.
+Still to add as the matching tools and approvals arrive:
+- ESLint, Prettier and Vitest jobs, once those dependencies are approved.
+- Caching for Cargo and pnpm if build times justify it.
+- Dependabot `npm` and `cargo` ecosystems in `.github/dependabot.yml`.
 
-Create a separate manually approved release workflow with signing secrets in protected environment. Never give signing credentials to PR triggers. CodeQL is provided for TS when files exist; evaluate Rust security tools separately.
+Create a separate manually approved release workflow with signing secrets in a protected environment. Never give signing
+credentials to PR triggers. The temporary identifier `dev.local.soundboard` must never be used for signing, the updater or releases.
