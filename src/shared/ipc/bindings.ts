@@ -7,6 +7,8 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	appInfo: () => __TAURI_INVOKE<AppInfo>("app_info"),
+	/**  Lists current audio devices. This never builds a stream or captures microphone audio. */
+	listAudioDevices: () => typedError<AudioDevicesDto, AppError>(__TAURI_INVOKE("list_audio_devices")),
 	/**  Reads library statistics. The query runs on the blocking pool, never on the async runtime or an audio thread. */
 	libraryStats: () => typedError<LibraryStats, AppError>(__TAURI_INVOKE("library_stats")),
 	/**  Lists the library. A sound whose file is missing or damaged is still listed, with its status. */
@@ -55,7 +57,9 @@ export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kin
 /**  There is no running audio output right now (starting, reconnecting, failed or stopped). */
 { kind: "audioUnavailable" } | 
 /**  The audio engine is busy or did not answer in time. */
-{ kind: "audioBusy" } | { kind: "soundNotFound" } | 
+{ kind: "audioBusy" } | 
+/**  Reading the OS audio-device list failed; local playback may still work. */
+{ kind: "deviceDiscoveryFailed" } | { kind: "soundNotFound" } | 
 /**  A setting or sound option is outside its range or names an unsupported choice. */
 { kind: "invalidSetting" } | 
 /**  The sound is too long to be decoded into memory for playback. */
@@ -69,6 +73,20 @@ export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kin
 export type AppInfo = {
 	name: string,
 	version: string,
+};
+
+export type AudioDeviceDto = {
+	id: string,
+	name: string,
+	kind: DeviceKindDto,
+	input: boolean,
+	output: boolean,
+	configuration: DeviceConfigurationDto,
+};
+
+export type AudioDevicesDto = {
+	devices: AudioDeviceDto[],
+	incomplete: boolean,
 };
 
 /**  Why the audio output failed, when it did. */
@@ -92,6 +110,10 @@ export type AudioStatus_Serialize = {
 	sampleRate: number | null,
 	channels: number | null,
 };
+
+export type DeviceConfigurationDto = "supported" | "unsupported" | "unknown";
+
+export type DeviceKindDto = "virtual" | "physical" | "unknown";
 
 /**  Result of a completed import. */
 export type ImportResult = {
