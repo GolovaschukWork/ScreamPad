@@ -1,4 +1,5 @@
 mod commands;
+pub mod infrastructure;
 mod ipc;
 
 pub fn run() {

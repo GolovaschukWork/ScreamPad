@@ -98,5 +98,14 @@ the transaction back; foreign keys enforced with cascade; `VACUUM INTO` backup i
 `file is not a database` without panicking; a newer database is detected (`DatabaseTooFarAhead`); a second writer receives
 `database is locked` after the timeout instead of hanging.
 
-NOT VERIFIED: behavior on Windows 11 and Intel macOS (the CI matrix covers the implementation PR), the exact bundled SQLite
-version (assert `sqlite_version()` in the implementation), disk-full simulation, and performance on a large library.
+Implementation (`src-tauri/src/infrastructure/sqlite`, 21 Rust tests on macOS arm64): the connection settings above, atomic
+upgrade, backup with pruning to the newest three, rejection of a newer database, corrupt-file detection with quarantine
+(bytes preserved), writer lock timeout mapped to `Busy`, disk exhaustion via `PRAGMA max_page_count` mapped to `Full`,
+constraint violations mapped to `Constraint` with transaction rollback, and the shipped-migration checksum test. The bundled
+SQLite is 3.53.2 (`libsqlite3-sys` 0.38.2) and a test requires at least 3.35.
+
+Note: `rusqlite_migration` rejects an empty migration list (`NoMigrationsDefined`), so the production database cannot be
+opened before the first schema migration is approved and shipped.
+
+NOT VERIFIED: behavior on Windows 11 and Intel macOS until the CI matrix is green for the implementation PR, and performance
+on a large library.
