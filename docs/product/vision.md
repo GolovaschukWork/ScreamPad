@@ -1,6 +1,6 @@
 # Product vision
 
-**Name:** TBD. **License:** TBD.
+**Name:** ScreamPad. **License:** TBD.
 
 A premium, accessible, local-first desktop soundboard for general audiences on Windows 11 and macOS 14+.
 

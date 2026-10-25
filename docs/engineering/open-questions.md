@@ -1,6 +1,6 @@
 # Open decisions — do not invent answers
 
-1. Product name, repository slug, app/bundle identifier, publisher identity and domain: TBD.
+1. Publisher identity, domain and the production app/bundle identifier: TBD. (Product name ScreamPad and the repository slug are decided; `soundboard-desktop` / `dev.local.soundboard` remain temporary internal identifiers.)
 2. Open-source license: TBD after exact FFmpeg configuration and dependency license audit.
 3. URL imports: which providers and legal/technical boundaries are supported?
 4. FFmpeg: executable vs linked libraries, codec subset, redistribution and compliance plan.

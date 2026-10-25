@@ -35,5 +35,5 @@ jobs:
           done
       - name: Check no product identity/license assumptions
         run: |
-          grep -q 'Product name: TBD' CLAUDE.md
+          grep -q 'Product name: ScreamPad' CLAUDE.md
           grep -q 'License: TBD' CLAUDE.md

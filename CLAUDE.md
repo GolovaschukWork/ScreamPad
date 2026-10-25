@@ -1,6 +1,6 @@
 # Project engineering contract
 
-> Product name: TBD. License: TBD. Do not replace placeholders without owner approval.
+> Product name: ScreamPad (approved by the owner). License: TBD. Do not replace remaining placeholders (license, publisher identity, domain, production bundle identifier) without owner approval.
 
 ## Product
 Cross-platform, local-first, open-source desktop soundboard with premium UX, a managed sound library, non-destructive waveform editing, audio import from local files and approved URLs, and microphone + sound mixing into user-installed virtual audio devices. Windows 11 x64 and macOS 14+ (arm64/x64). Distribution is via GitHub Releases and a future website; **no app stores**.
