@@ -1,0 +1,18 @@
+{
+  "library": {
+    "opening": "Opening the library…",
+    "ready_one": "Library ready: {{count}} sound (schema {{schema}}).",
+    "ready_other": "Library ready: {{count}} sounds (schema {{schema}})."
+  },
+  "errors": {
+    "storageBusy": "The library is busy. Try again in a moment.",
+    "storageFull": "The disk is full, so the library cannot be updated.",
+    "storageCorrupt": "The library database is damaged. Your original database file was left untouched.",
+    "storageTooNew": "The library was created by a newer version of ScreamPad (schema {{database}}; this version supports {{supported}}). Please update the application.",
+    "storageMigration": "The library could not be upgraded. A backup was kept.",
+    "storageConstraint": "The library rejected the change because it conflicts with existing data.",
+    "storageIo": "The library storage is not accessible.",
+    "internal": "Something went wrong inside the application.",
+    "backendUnreachable": "Could not reach the application backend."
+  }
+}
