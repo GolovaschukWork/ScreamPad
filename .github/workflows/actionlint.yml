@@ -1,0 +1,43 @@
+name: actionlint
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+permissions:
+  contents: read
+env:
+  ACTIONLINT_VERSION: "1.7.12"
+  # SHA-256 of actionlint_1.7.12_linux_amd64.tar.gz. It matches the release's published
+  # checksums file and the GitHub asset digest. Update all three together.
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Cache actionlint binary
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.local/bin/actionlint
+          key: actionlint-${{ env.ACTIONLINT_VERSION }}-${{ env.ACTIONLINT_SHA256 }}
+      - name: Download and verify actionlint
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$HOME/.local/bin" actionlint
+      - name: Run actionlint
+        run: |
+          "$HOME/.local/bin/actionlint" -version
+          "$HOME/.local/bin/actionlint" -color

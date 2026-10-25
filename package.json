@@ -1,0 +1,9 @@
+{
+  "name": "soundboard-desktop",
+  "private": true,
+  "packageManager": "pnpm@10.34.8",
+  "engines": {
+    "node": ">=24.22.1 <25",
+    "pnpm": ">=10.34.8 <11"
+  }
+}
