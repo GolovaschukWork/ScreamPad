@@ -1,0 +1,23 @@
+name: Governance checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate governance files and JSON
+        run: |
+          python3 -m json.tool .claude/settings.json > /dev/null
+          python3 -m py_compile .claude/hooks/guard_bash.py
+          test -f CLAUDE.md
+          test -f docs/engineering/release-policy.md
+          test -f docs/engineering/definition-of-done.md
+      - name: Check no product identity/license assumptions
+        run: |
+          grep -q 'Product name: TBD' CLAUDE.md
+          grep -q 'License: TBD' CLAUDE.md

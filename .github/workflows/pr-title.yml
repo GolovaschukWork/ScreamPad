@@ -1,0 +1,23 @@
+name: PR title
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  conventional:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Conventional Commit PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python3 - <<'PYCODE'
+          import os, re, sys
+          title=os.environ['PR_TITLE']
+          pattern=r'^(feat|fix|perf|refactor|test|docs|ci|build|chore|revert)(\([a-z0-9-]+\))?!?: .{1,100}$'
+          if not re.fullmatch(pattern,title):
+              print('Invalid Conventional Commit PR title:', title)
+              sys.exit(1)
+          PYCODE

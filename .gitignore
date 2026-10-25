@@ -1,0 +1,33 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code local overrides
+.claude/settings.local.json
+
+# Secrets and signing material (see .claude/rules/security.md)
+.env
+.env.*
+*.p12
+*.pfx
+*.key
+*.pem
+
+# Python bytecode (governance hook)
+__pycache__/
+*.pyc
+
+# Frontend build output and dependencies
+node_modules/
+dist/
+coverage/
+
+# Rust / Tauri build output
+target/
+src-tauri/gen/
+
+# Logs
+*.log
