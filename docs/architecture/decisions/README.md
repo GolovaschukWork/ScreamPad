@@ -16,5 +16,6 @@ Accepted decisions:
 
 Proposed (awaiting owner decision):
 - 0013 Microphone and virtual output routing (prototype and real-device measurements pending)
+- 0014 Virtual audio device onboarding (macOS architecture and UX proposal)
 
 Future ADRs required for: URL providers, FFmpeg distribution, non-destructive edit schema, license and signing provider.
