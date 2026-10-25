@@ -85,6 +85,17 @@ fn shipped_migrations_never_change() {
 }
 
 #[test]
+fn checksum_ignores_line_endings_so_a_windows_checkout_is_not_an_edit() {
+    let unix = "CREATE TABLE a (\n  id INTEGER\n);\n";
+    let windows = "CREATE TABLE a (\r\n  id INTEGER\r\n);\r\n";
+    assert_eq!(checksum(unix), checksum(windows));
+    assert_ne!(
+        checksum(unix),
+        checksum("CREATE TABLE a (\n  id INTEGEr\n);\n")
+    );
+}
+
+#[test]
 fn checksum_detects_a_single_character_edit() {
     assert_ne!(
         checksum("CREATE TABLE a (id INTEGER);"),
