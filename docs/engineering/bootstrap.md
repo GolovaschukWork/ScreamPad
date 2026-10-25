@@ -62,3 +62,13 @@ Commands are typed end to end with `tauri-specta` (ADR 0004). Register a command
 `src-tauri/src/commands/` with `#[derive(specta::Type)]`, then run `pnpm ipc:export` to regenerate
 `src/shared/ipc/bindings.ts`. Never edit that file by hand: CI regenerates it and fails on any diff. 64-bit integers need an
 explicit mapping; specta refuses to export them otherwise.
+
+## Library database
+
+The SQLite library is `library.db` in the platform application-data directory (`~/Library/Application Support/<identifier>` on
+macOS, `%APPDATA%\<identifier>` on Windows), where `<identifier>` is the bundle identifier. While the identifier is the
+temporary `dev.local.soundboard`, development data lives in that directory; changing the identifier later starts a new, empty
+library. The schema is created by forward-only migrations in `src-tauri/migrations`; adding one requires owner approval, a
+checksum entry in `SHIPPED_CHECKSUMS`, and a frozen fixture `src-tauri/tests/fixtures/sqlite/schema_vN.sql` (see ADR 0005).
+
+The release profile uses Rust's default `panic = "unwind"`.

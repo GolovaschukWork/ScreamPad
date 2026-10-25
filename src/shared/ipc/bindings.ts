@@ -6,12 +6,36 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	appInfo: () => __TAURI_INVOKE<AppInfo>("app_info"),
+	/**  Reads library statistics. The query runs on the blocking pool, never on the async runtime or an audio thread. */
+	libraryStats: () => typedError<LibraryStats, AppError>(__TAURI_INVOKE("library_stats")),
 };
 
 /* Types */
+/**
+ *  The error contract of the IPC layer. It carries a machine-readable `kind` and, where useful, numbers.
+ *  It never carries free text, file names or paths: the UI maps each `kind` to a message.
+ */
+export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kind: "storageCorrupt" } | { kind: "storageTooNew"; database: number; supported: number } | { kind: "storageMigration" } | { kind: "storageConstraint" } | { kind: "storageIo" } | { kind: "internal" };
+
 /**  Static information about the running application. */
 export type AppInfo = {
 	name: string,
 	version: string,
 };
+
+/**  Summary of the sound library. */
+export type LibraryStats = {
+	soundCount: number,
+	schemaVersion: number,
+};
+
+/* Tauri Specta runtime */
+async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
+    try {
+        return { status: "ok", data: await result };
+    } catch (e) {
+        if (e instanceof Error) throw e;
+        return { status: "error", error: e as any };
+    }
+}
 

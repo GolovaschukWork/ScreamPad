@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { commands, type AppInfo } from "../shared/ipc/bindings";
+import { commands, type LibraryStats } from "../shared/ipc/bindings";
+import { describeError } from "../shared/ipc/messages";
 
 type State =
   | { status: "loading" }
-  | { status: "ready"; info: AppInfo }
+  | { status: "ready"; stats: LibraryStats }
   | { status: "error"; message: string };
 
 export default function App() {
@@ -12,11 +13,17 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     commands
-      .appInfo()
-      .then((info) => {
-        if (!cancelled) setState({ status: "ready", info });
+      .libraryStats()
+      .then((result) => {
+        if (cancelled) return;
+        setState(
+          result.status === "ok"
+            ? { status: "ready", stats: result.data }
+            : { status: "error", message: describeError(result.error) },
+        );
       })
       .catch((error: unknown) => {
+        // The call itself failed (for example outside the desktop shell), not a typed backend error.
         if (!cancelled) {
           setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
         }
@@ -30,9 +37,10 @@ export default function App() {
     <main>
       <h1>ScreamPad</h1>
       <p role="status">
-        {state.status === "loading" && "Connecting to the backend…"}
-        {state.status === "ready" && `Backend connected. Version ${state.info.version}.`}
-        {state.status === "error" && `Backend unavailable: ${state.message}`}
+        {state.status === "loading" && "Opening the library…"}
+        {state.status === "ready" &&
+          `Library ready: ${state.stats.soundCount} ${state.stats.soundCount === 1 ? "sound" : "sounds"} (schema ${state.stats.schemaVersion}).`}
+        {state.status === "error" && state.message}
       </p>
     </main>
   );

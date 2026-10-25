@@ -120,10 +120,10 @@ States: `Closed → Opening → Running → Recovering → Running | Failed`.
   verification on Windows 11 and macOS before it can be called reliable.
 
 ## Risks and decisions for the owner
-1. **`panic = "abort"` in the release profile** (from the Tauri template) makes any panic inside a third-party decoder kill the
-   whole application, because `catch_unwind` cannot contain it. Options: switch the release profile to `panic = "unwind"` and
-   run decoding behind `catch_unwind` in workers; keep `abort` and rely on corpus tests and limits; or move decoding to a
-   separate process later (Option D). Recommendation: `unwind` for the first slice, plus malformed-file tests.
+1. **Panic strategy (decided by the owner on 2026-10-25): keep the default `panic = "unwind"`.** The Tauri template's
+   `panic = "abort"` was removed from the release profile. Expected failures use `Result`; production code does not `unwrap()` or
+   `expect()` unverified external data. Decoding still runs behind `catch_unwind` in workers, with malformed-file tests, because
+   third-party decoders can panic on hostile input.
 2. Approval of the proposed small dependencies (`rtrb` or `ringbuf`, a resampler).
 3. The clip-length cap and voice limit are placeholders until measured.
 

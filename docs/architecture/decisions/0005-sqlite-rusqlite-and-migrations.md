@@ -104,8 +104,22 @@ upgrade, backup with pruning to the newest three, rejection of a newer database,
 constraint violations mapped to `Constraint` with transaction rollback, and the shipped-migration checksum test. The bundled
 SQLite is 3.53.2 (`libsqlite3-sys` 0.38.2) and a test requires at least 3.35.
 
-Note: `rusqlite_migration` rejects an empty migration list (`NoMigrationsDefined`), so the production database cannot be
-opened before the first schema migration is approved and shipped.
+Schema 1 (`src-tauri/migrations/0001_create_sounds.sql`, owner-approved on 2026-10-25): one `STRICT` table `sounds` with a
+unique SHA-256 `content_hash` (64 lowercase hex characters), a unique safe relative `managed_path`, audio metadata,
+Unix-millisecond timestamps, and a trigger that makes the media columns immutable after import. Tests cover the empty-database
+migration, re-running it, every constraint (including path traversal forms and NUL bytes), failed later migrations leaving no
+partial schema, and upgrades of frozen databases from every earlier version (`src-tauri/tests/fixtures/sqlite/schema_vN.sql`,
+one per migration, required by a test).
 
-NOT VERIFIED: behavior on Windows 11 and Intel macOS until the CI matrix is green for the implementation PR, and performance
-on a large library.
+Finding: SQLite `GLOB` and `length()` stop at a NUL byte, so a text value could carry hidden bytes past the checks. The schema
+therefore also compares byte length with character length. Keep that in mind for any future text constraint.
+
+Lifecycle: the database is `library.db` in the platform application-data directory (`app_data_dir()`, which derives from the
+bundle identifier) and is opened during Tauri `setup`. A failure does not abort the app: it is kept as a typed `AppError` and
+shown by the UI, and a damaged file is never modified automatically. SQL runs only on the blocking pool. IPC errors carry a
+`kind` and numbers only, never messages or paths.
+
+NOT VERIFIED: the app-data location on Windows, and changing the temporary identifier later, which would orphan an existing
+library directory (acceptable before the first release).
+
+NOT VERIFIED: behavior on Windows 11 and Intel macOS until the CI matrix is green, and performance on a large library.
