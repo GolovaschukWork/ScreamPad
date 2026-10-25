@@ -47,3 +47,11 @@ Generated with `create-tauri-app` 4.7.5 (React + TypeScript template, pnpm) and 
 
 Scripts: `pnpm dev`, `pnpm build`, `pnpm typecheck`, `pnpm tauri <cmd>`. Lint, format and unit-test tooling (ESLint,
 Prettier, Vitest) is intentionally absent until its dependencies are approved. The capability set is `core:default` only.
+
+## CI cost control
+
+CI runs on pull requests only; merging a green PR does not repeat it on `main`. `.github/scripts/detect-changes.sh` maps changed
+files to areas, so documentation, ADR and governance-only PRs skip the TypeScript job, the three-OS native matrix and CodeQL.
+Frontend-only edits skip the native matrix; Rust-only edits skip the frontend job. The `ci-gate` job is the single status to
+require once branch protection is enabled (skipped jobs pass, failures and cancellations do not). CodeQL refreshes its `main`
+baseline when sources change on `main` and weekly. Superseded runs on the same ref are cancelled.

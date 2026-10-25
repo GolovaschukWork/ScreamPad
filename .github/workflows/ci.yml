@@ -1,15 +1,38 @@
 name: CI
+# Runs on pull requests only: merging a green PR does not repeat the same checks on main.
+# Jobs are skipped when the PR does not touch the files they check (see .github/scripts/detect-changes.sh).
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.detect.outputs.frontend }}
+      native: ${{ steps.detect.outputs.native }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge commit and its first parent give the files changed by the PR.
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Detect changed areas
+        id: detect
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git diff --name-only HEAD^1 HEAD | .github/scripts/detect-changes.sh | grep -E '^(frontend|native)=' >> "$GITHUB_OUTPUT"
+          else
+            printf 'frontend=true\nnative=true\n' >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,6 +48,8 @@ jobs:
       - run: pnpm build
   native:
     name: native (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -54,3 +79,17 @@ jobs:
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test --locked
+  # Single status to require in branch protection: skipped jobs count as passing, failures and cancellations do not.
+  ci-gate:
+    if: always()
+    needs: [changes, frontend, native]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Job results: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac

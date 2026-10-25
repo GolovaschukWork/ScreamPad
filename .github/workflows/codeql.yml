@@ -1,27 +1,48 @@
 name: CodeQL
+# Pull requests analyze only when TypeScript sources or their dependencies change. The default-branch baseline is
+# refreshed when sources change on main and once a week, so alerts keep being compared against a recent analysis.
 on:
   pull_request:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/codeql.yml"
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
 permissions:
   contents: read
   security-events: write
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 2
           persist-credentials: false
       # hashFiles() is not allowed in job-level conditions, so gate the steps instead.
-      - name: Detect TypeScript sources
+      - name: Decide whether analysis is needed
         id: sources
         run: |
-          if [ -n "$(git ls-files 'src/*.ts' 'src/*.tsx')" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ -z "$(git ls-files 'src/*.ts' 'src/*.tsx')" ]; then
             echo "No TypeScript sources yet; skipping CodeQL analysis."
+            exit 0
           fi
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed="$(git diff --name-only HEAD^1 HEAD | .github/scripts/detect-changes.sh | grep -E '^codeql=')"
+            if [ "$changed" != "codeql=true" ]; then
+              echo "PR does not touch TypeScript sources or dependencies; skipping CodeQL analysis."
+              exit 0
+            fi
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: steps.sources.outputs.present == 'true'
         with:
