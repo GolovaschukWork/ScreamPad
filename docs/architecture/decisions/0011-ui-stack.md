@@ -102,3 +102,25 @@ the provider reads it before the first render.
 2. The dependency table is approved (shadcn only as a pinned one-off, `tw-animate-css` only if needed).
 3. PR #30 is not merged; its useful decisions are recorded here and it is closed with an explanation.
 4. Base UI, not Radix.
+
+## Implementation notes (UI foundation, 2026-10-25)
+- Installed with exact pins as approved (`pnpm audit --prod`: no known vulnerabilities). `shadcn` is not a dependency: the five
+  components were generated once with `pnpm dlx shadcn@4.22.1 add ...` in a scratch copy and reviewed before being copied in.
+- Corrections made to the generated source, which a plain `shadcn add` without `init` gets wrong in this layout:
+  - it imported `cn` from an unrelated npm package named `cn` (and added it); replaced with our `@/shared/lib/utils`;
+  - `sonner.tsx` used `next-themes` (not approved); it now uses our own `useTheme`;
+  - the slider thumb used `bg-white`; it uses `bg-background`;
+  - `data-horizontal:` / `data-vertical:` never matched because Base UI emits `data-orientation`; two `@custom-variant`
+    lines in `index.css` map them (without them the slider track collapsed);
+  - Next.js-only `"use client"` and a `cn-toast` class (defined by an `init` stylesheet we do not use) were removed.
+- Tokens live only in `src/app/index.css` (`:root` light, `:root.dark`, `@theme inline`), seeded from the useful decisions of the
+  closed PR #30. `scripts/theme/tokens.test.mjs` checks that both themes define the same set, AA contrast (4.5:1) for text
+  pairs, 3:1 for the focus ring, and that no raw color appears outside that file.
+- `ThemeProvider` holds the choice in memory only, always puts exactly one of `dark`/`light` on `<html>`, follows the system
+  scheme live, and persists nothing. The pre-JavaScript frame follows the system scheme with CSS alone. Persistence arrives with
+  migration 0003 in its own PR.
+- Tailwind's preflight now resets browser defaults, so the existing, unrewritten screens look plainer (unstyled buttons, no list
+  markers). They stay functional; migrating them is a separate approved change.
+- Verified: typecheck, build, 23 script tests (with mutation checks), and a temporary gallery in Chrome (Dark, Light, System,
+  live switching, Select popup, slider, switch, keyboard focus ring). NOT VERIFIED: the real Tauri WebViews (WKWebView, WebView2).
+  CI builds the frontend and the native targets, but does not render the WebView, so no CI screenshot exists.
