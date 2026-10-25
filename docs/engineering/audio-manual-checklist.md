@@ -23,13 +23,14 @@ Setup: start the app (`pnpm tauri dev`), import a clip of a few seconds, and pla
 | 12 | Set a sound's gain to -20 dB, then +6 dB, and play it each time | The sound is clearly quieter, then louder than at 0 dB; +6 dB does not crackle on a loud sound (the mixer clamps, it does not limit) |
 | 13 | Lower the master volume, then change the default output device and play a sound | The master volume still applies on the new device and after restarting the app |
 | 14 | Set a long sound to each play mode and press it three times | Overlap: layers. Restart: starts over each time. Ignore: nothing happens while it plays. Toggle: the second press stops it, the third starts it |
+| 15 | Start a long sound, then stop that one sound while another keeps playing | Only the stopped sound goes silent, within a few milliseconds, without a click |
 
 ## Results
 
 Fill in one row per platform and date. Use PASS, FAIL (with a note) or NOT RUN.
 
-| Platform | Date | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | Tester |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| macOS 14+ arm64 | | | | | | | | | | | | | | | | |
-| macOS 14+ x64 | | | | | | | | | | | | | | | | |
-| Windows 11 x64 | | | | | | | | | | | | | | | | |
+| Platform | Date | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | Tester |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| macOS 14+ arm64 | | | | | | | | | | | | | | | | | |
+| macOS 14+ x64 | | | | | | | | | | | | | | | | | |
+| Windows 11 x64 | | | | | | | | | | | | | | | | | |

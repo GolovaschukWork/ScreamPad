@@ -109,3 +109,14 @@ Approved as proposed, with these owner clarifications:
 ## Limits
 - NOT VERIFIED: the look and behaviour of the new controls in the running app (keyboard flow, narrow window); audible gain and play modes on any hardware (checklist rows 12-14); Windows and Intel macOS.
 - A damaged or missing settings row has no repair procedure yet; the commands report `storageCorrupt`.
+
+## Addendum: playing state and stopping one sound (2026-10-25, owner-approved IPC change)
+The library UI needs to show which sounds are playing and to stop a single sound. Nothing about play-mode semantics changes.
+- `AudioEngine::playing_tags()` and `on_playing_changed(listener)`: the engine thread already tracks voices per tag (sound id).
+  It reports the sorted, deduplicated set whenever it changes (a play, a stop, a voice that ends by itself, a rebuilt stream) and
+  once when a listener is registered. A voice asked to stop no longer counts. While voices exist the engine looks for finished
+  ones every 50 ms; with none it sleeps as before. The audio callback is unchanged.
+- `PlaybackService::stop(id)` (idempotent; unknown or idle sounds are not errors) and `playing_sounds()`.
+- IPC: command `stop_sound(id)`, command `playing_sounds()` for the initial state, typed event `PlayingChanged { ids }`
+  (`playing-changed`) forwarded from the engine listener. No new error kinds, permissions or dependencies.
+- NOT VERIFIED: the event reaching a real webview (tested with Tauri's mock runtime), and the 50 ms follow-up on real devices.

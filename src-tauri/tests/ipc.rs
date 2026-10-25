@@ -773,6 +773,8 @@ fn when_audio_is_unavailable_every_playback_command_says_so() {
     for (cmd, body) in [
         ("play_sound", json!({ "id": 1 })),
         ("stop_all_sounds", json!({})),
+        ("stop_sound", json!({ "id": 1 })),
+        ("playing_sounds", json!({})),
         ("audio_status", json!({})),
         ("retry_audio", json!({})),
     ] {
@@ -1127,5 +1129,119 @@ fn the_theme_is_stored_with_the_other_settings() {
             theme
         );
     }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// --- stopping one sound and the playing state ---------------------------------------------------------------------------
+
+fn playback_call(cmd: &str, body: Value, service: &Arc<PlaybackService>) -> Result<Value, Value> {
+    call(
+        cmd,
+        body,
+        Parts {
+            playback: Some(PlaybackState::Ready(Arc::clone(service))),
+            ..Parts::default()
+        },
+    )
+}
+
+#[test]
+fn playing_sounds_lists_what_sounds_and_stop_sound_removes_only_that_sound() {
+    let (dir, storage) = library_with_two_sounds("playing");
+    let (playback, render) = playback_for(&storage, None);
+    wait_running(&playback);
+    let service = playback.service().expect("ready");
+    let sounds = soundboard_desktop_lib::application::ports::SoundRepository::list(
+        storage.library().expect("ready").repository.as_ref(),
+    )
+    .expect("rows");
+    let (first, second) = (
+        u32::try_from(sounds[0].id).expect("id"),
+        u32::try_from(sounds[1].id).expect("id"),
+    );
+
+    assert_eq!(
+        playback_call("playing_sounds", json!({}), &service),
+        Ok(json!([]))
+    );
+    for id in [first, second] {
+        play(&storage, PlaybackState::Ready(Arc::clone(&service)), id).expect("play");
+    }
+    assert_eq!(
+        playback_call("playing_sounds", json!({}), &service),
+        Ok(json!([first, second]))
+    );
+
+    assert_eq!(
+        playback_call("stop_sound", json!({ "id": first }), &service),
+        Ok(Value::Null)
+    );
+    assert_eq!(
+        playback_call("playing_sounds", json!({}), &service),
+        Ok(json!([second]))
+    );
+    wait_until("the other sound to keep playing", || {
+        pump(&render, 256).iter().any(|s| s.abs() > 0.01)
+    });
+
+    // Stopping a sound that is not playing, or unknown, is not an error.
+    for id in [first, 987_654] {
+        assert_eq!(
+            playback_call("stop_sound", json!({ "id": id }), &service),
+            Ok(Value::Null)
+        );
+    }
+    service.engine().shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn playing_ids_keep_only_ids_the_ui_can_hold() {
+    use soundboard_desktop_lib::commands::playback::playing_ids;
+    assert_eq!(playing_ids(&[]), Vec::<u32>::new());
+    assert_eq!(playing_ids(&[1, 7]), vec![1, 7]);
+    assert_eq!(playing_ids(&[3, u64::from(u32::MAX) + 1, 4]), vec![3, 4]);
+}
+
+#[test]
+fn playing_changes_reach_the_webview_as_a_typed_event() {
+    use soundboard_desktop_lib::commands::playback::{PlayingChanged, forward_playing_changes};
+    use tauri::Listener;
+
+    let (dir, storage) = library_with_two_sounds("playing-event");
+    let (playback, _render) = playback_for(&storage, None);
+    wait_running(&playback);
+    let service = playback.service().expect("ready");
+    let id = first_sound_id(&storage);
+
+    let ipc = builder::<MockRuntime>();
+    let app = mock_builder()
+        .invoke_handler(ipc.invoke_handler())
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    ipc.mount_events(&app);
+    let seen = Arc::new(std::sync::Mutex::new(Vec::<Vec<u32>>::new()));
+    let sink = Arc::clone(&seen);
+    app.listen(
+        <PlayingChanged as tauri_specta::Event>::NAME,
+        move |event| {
+            let parsed: PlayingChanged = serde_json::from_str(event.payload()).expect("payload");
+            sink.lock().expect("seen").push(parsed.ids);
+        },
+    );
+    forward_playing_changes(&service, app.handle().clone());
+
+    wait_until("the initial empty state", || {
+        seen.lock().expect("seen").first() == Some(&Vec::new())
+    });
+    play(&storage, PlaybackState::Ready(Arc::clone(&service)), id).expect("play");
+    wait_until("the start", || {
+        seen.lock().expect("seen").last() == Some(&vec![id])
+    });
+    playback_call("stop_sound", json!({ "id": id }), &service).expect("stop");
+    wait_until("the stop", || {
+        seen.lock().expect("seen").last() == Some(&Vec::new())
+    });
+    service.engine().shutdown();
     let _ = std::fs::remove_dir_all(dir);
 }

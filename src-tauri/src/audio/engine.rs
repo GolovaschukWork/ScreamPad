@@ -111,6 +111,13 @@ enum Message {
         gain: f32,
         reply: Sender<Result<(), EngineError>>,
     },
+    PlayingTags {
+        reply: Sender<Result<Vec<VoiceTag>, EngineError>>,
+    },
+    SetPlayingListener {
+        listener: PlayingListener,
+        reply: Sender<Result<(), EngineError>>,
+    },
     Retry,
     /// An event from the audio API. `generation` identifies the stream that raised it; events of a stream that has been
     /// replaced are stale and ignored.
@@ -250,6 +257,23 @@ impl AudioEngine {
         self.request(|reply| Message::Playing { tag, reply })
     }
 
+    /// The tags (for example sound ids) that have a voice sounding right now, sorted, without duplicates. A voice that has
+    /// been asked to stop no longer counts.
+    pub fn playing_tags(&self) -> Result<Vec<VoiceTag>, EngineError> {
+        self.request(|reply| Message::PlayingTags { reply })
+    }
+
+    /// Registers the function the engine calls whenever the set of playing tags changes (after a play, a stop, a voice that
+    /// ended by itself, or a rebuilt stream). It runs on the engine thread: it must return quickly and must not call back
+    /// into the engine. Replaces an earlier listener.
+    pub fn on_playing_changed(
+        &self,
+        listener: impl Fn(&[VoiceTag]) + Send + Sync + 'static,
+    ) -> Result<(), EngineError> {
+        let listener: PlayingListener = Arc::new(listener);
+        self.request(|reply| Message::SetPlayingListener { listener, reply })
+    }
+
     /// Sets the linear master gain (1.0 is unity). It is kept across stream rebuilds, so a device change does not reset it.
     pub fn set_master_gain(&self, gain: f32) -> Result<(), EngineError> {
         self.request(|reply| Message::SetMasterGain { gain, reply })
@@ -303,6 +327,12 @@ impl Drop for AudioEngine {
 /// The caller's identifier for a group of voices (a sound id, for example).
 pub type VoiceTag = u64;
 
+type PlayingListener = Arc<dyn Fn(&[VoiceTag]) + Send + Sync>;
+
+/// How often the engine looks for voices that have ended while some are sounding, so the UI follows a sound that finishes
+/// by itself within about this long.
+const VOICE_WATCH: Duration = Duration::from_millis(50);
+
 /// A voice the engine has handed to the mixer and not yet seen finish.
 struct TrackedVoice {
     id: VoiceId,
@@ -334,6 +364,9 @@ struct Worker {
     last_default: Option<String>,
     /// Linear master gain, applied to every stream that is opened.
     master_gain: f32,
+    playing_listener: Option<PlayingListener>,
+    /// The set last reported to the listener.
+    reported_playing: Vec<VoiceTag>,
 }
 
 impl Worker {
@@ -355,6 +388,8 @@ impl Worker {
             next_poll: Instant::now(),
             last_default: None,
             master_gain: 1.0,
+            playing_listener: None,
+            reported_playing: Vec::new(),
         }
     }
 
@@ -378,6 +413,7 @@ impl Worker {
                 }
             }
             self.tick();
+            self.publish_playing(false);
         }
         self.stop();
     }
@@ -389,9 +425,18 @@ impl Worker {
     }
 
     fn next_wakeup(&self) -> Instant {
-        match self.retry_at {
+        let base = match self.retry_at {
             Some(retry_at) => retry_at.min(self.next_poll),
             None => self.next_poll,
+        };
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|session| !session.voices.is_empty())
+        {
+            base.min(Instant::now() + VOICE_WATCH)
+        } else {
+            base
         }
     }
 
@@ -422,6 +467,17 @@ impl Worker {
             }
             Message::Playing { tag, reply } => {
                 let _ = reply.send(Ok(self.playing(tag)));
+            }
+            Message::PlayingTags { reply } => {
+                self.sync_voices();
+                let _ = reply.send(Ok(self.playing_now()));
+            }
+            Message::SetPlayingListener { listener, reply } => {
+                self.playing_listener = Some(listener);
+                // The new listener learns the current state, even if it is empty.
+                self.reported_playing = Vec::new();
+                self.publish_playing(true);
+                let _ = reply.send(Ok(()));
             }
             Message::SetMasterGain { gain, reply } => {
                 self.master_gain = gain;
@@ -553,6 +609,37 @@ impl Worker {
         self.retry_at = Some(Instant::now());
         self.shared
             .set(EngineState::Recovering { attempt: 0 }, None);
+    }
+
+    /// The sorted, deduplicated tags that have a voice that is not stopping.
+    fn playing_now(&self) -> Vec<VoiceTag> {
+        let mut tags: Vec<VoiceTag> = self
+            .session
+            .as_ref()
+            .map(|session| {
+                session
+                    .voices
+                    .iter()
+                    .filter(|voice| !voice.stopping)
+                    .filter_map(|voice| voice.tag)
+                    .collect()
+            })
+            .unwrap_or_default();
+        tags.sort_unstable();
+        tags.dedup();
+        tags
+    }
+
+    /// Tells the listener about the playing set when it differs from what it was last told (or always, with `force`).
+    fn publish_playing(&mut self, force: bool) {
+        let now = self.playing_now();
+        if !force && now == self.reported_playing {
+            return;
+        }
+        self.reported_playing = now;
+        if let Some(listener) = &self.playing_listener {
+            listener(&self.reported_playing);
+        }
     }
 
     fn tick(&mut self) {
