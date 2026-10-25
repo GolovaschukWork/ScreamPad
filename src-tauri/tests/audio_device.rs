@@ -121,11 +121,12 @@ fn an_imported_sound_plays_through_the_real_output_silently() {
         PlaybackLimits::provisional(),
     );
 
+    // Silent test: the engine's raw master gain is set to zero (the persisted setting cannot be below -60 dB).
+    engine.set_master_gain(0.0).expect("mute the output");
+
     // A 44.1 kHz or 8 kHz file on a 48 kHz device: the resampler is on the path.
-    service.play(sound.id, 0.0).expect("play");
-    service
-        .play(sound.id, 0.0)
-        .expect("play again from the cache");
+    service.play(sound.id).expect("play");
+    service.play(sound.id).expect("play again from the cache");
     std::thread::sleep(Duration::from_millis(700));
 
     let snapshot = engine.snapshot();

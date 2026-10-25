@@ -18,6 +18,7 @@ use super::ports::{
     ProbeError, ProbeLimits, Published, SoundRepository, SourceHandle, SourceInfo, StagedFile,
 };
 use super::reconcile::{ReconcileReport, reconcile};
+use crate::domain::playback::{PlayMode, SoundGain};
 use crate::domain::sound::{ContentHash, NewSound, Sound, StorageKey};
 use crate::infrastructure::media::fs::OsMediaFs;
 use crate::infrastructure::media::hash::sha256_hex_file;
@@ -219,6 +220,16 @@ impl SoundRepository for FaultyRepo {
 
     fn list(&self) -> Result<Vec<Sound>, StorageError> {
         self.inner.list()
+    }
+
+    fn set_options(
+        &self,
+        id: i64,
+        gain: SoundGain,
+        play_mode: PlayMode,
+        now_ms: i64,
+    ) -> Result<Option<Sound>, StorageError> {
+        self.inner.set_options(id, gain, play_mode, now_ms)
     }
 }
 

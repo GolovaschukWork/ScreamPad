@@ -12,6 +12,8 @@ use super::ports::{ClipDecoder, MediaFs, ProbeError, ProbeLimits, SoundRepositor
 use crate::audio::backend::OutputFormat;
 use crate::audio::clip::Clip;
 use crate::audio::engine::{AudioEngine, EngineError};
+use crate::domain::playback::{MasterGain, TriggerAction};
+use crate::domain::sound::Sound;
 use crate::infrastructure::media::hash::sha256_hex_reader;
 
 /// Limits for preparing a clip to play. The values are **provisional** until measured.
@@ -66,6 +68,18 @@ impl std::fmt::Display for PlaybackError {
 
 impl std::error::Error for PlaybackError {}
 
+/// What triggering a sound did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayOutcome {
+    Started,
+    /// The sound's playing voices were stopped and a new one was started.
+    Restarted,
+    /// The sound's playing voices were stopped (toggle).
+    Stopped,
+    /// The sound is already playing and its mode ignores repeated triggers.
+    Ignored,
+}
+
 pub struct PlaybackService {
     repository: Arc<dyn SoundRepository>,
     files: Arc<dyn MediaFs>,
@@ -73,6 +87,9 @@ pub struct PlaybackService {
     engine: Arc<AudioEngine>,
     cache: Mutex<ClipCache>,
     limits: PlaybackLimits,
+    /// Serializes the decision "is this sound playing, so what do I do" with the engine call that carries it out, so that two
+    /// quick triggers of one sound cannot both decide on stale information.
+    trigger: Mutex<()>,
 }
 
 impl PlaybackService {
@@ -90,6 +107,7 @@ impl PlaybackService {
             engine,
             cache: Mutex::new(ClipCache::new(limits.cache_bytes)),
             limits,
+            trigger: Mutex::new(()),
         }
     }
 
@@ -97,8 +115,32 @@ impl PlaybackService {
         &self.engine
     }
 
-    /// Starts the sound `sound_id` at `gain` (1.0 is unity). May decode the file the first time; call it from a blocking task.
-    pub fn play(&self, sound_id: i64, gain: f32) -> Result<(), PlaybackError> {
+    /// Triggers the sound `sound_id` with its stored gain and play mode. May decode the file the first time; call it from a
+    /// blocking task.
+    ///
+    /// At most 32 voices sound at once (the mixer's fixed limit). A play beyond it is refused by the audio callback, counted
+    /// in the engine's `rejected_plays`, and nothing else is stopped.
+    pub fn play(&self, sound_id: i64) -> Result<PlayOutcome, PlaybackError> {
+        let sound = self
+            .repository
+            .find_by_id(sound_id)?
+            .ok_or(PlaybackError::SoundNotFound)?;
+        let tag = voice_tag(sound.id)?;
+
+        // A trigger that only stops or ignores needs no clip, so it never waits for a decode.
+        {
+            let _decision = self.trigger_lock();
+            let playing = self.engine.playing(tag).map_err(map_engine_error)?;
+            match sound.play_mode.on_trigger(playing) {
+                TriggerAction::Stop => {
+                    self.engine.stop_tag(tag).map_err(map_engine_error)?;
+                    return Ok(PlayOutcome::Stopped);
+                }
+                TriggerAction::Nothing => return Ok(PlayOutcome::Ignored),
+                TriggerAction::Start | TriggerAction::StopThenStart => {}
+            }
+        }
+
         // The output format can change between preparing a clip and handing it over (a device switch), so one retry is made.
         for attempt in 0..2 {
             let format = self
@@ -106,14 +148,46 @@ impl PlaybackService {
                 .snapshot()
                 .format
                 .ok_or(PlaybackError::AudioUnavailable)?;
-            let clip = self.clip_for(sound_id, format)?;
-            match self.engine.play(clip, gain) {
-                Ok(()) => return Ok(()),
+            let clip = self.clip_for(&sound, format)?;
+            // The clip took time to prepare: decide again, now, together with starting it.
+            let _decision = self.trigger_lock();
+            let playing = self.engine.playing(tag).map_err(map_engine_error)?;
+            let action = sound.play_mode.on_trigger(playing);
+            match action {
+                TriggerAction::Stop => {
+                    self.engine.stop_tag(tag).map_err(map_engine_error)?;
+                    return Ok(PlayOutcome::Stopped);
+                }
+                TriggerAction::Nothing => return Ok(PlayOutcome::Ignored),
+                TriggerAction::StopThenStart => {
+                    self.engine.stop_tag(tag).map_err(map_engine_error)?;
+                }
+                TriggerAction::Start => {}
+            }
+            match self.engine.play_tagged(clip, sound.gain.linear(), tag) {
+                Ok(()) if action == TriggerAction::StopThenStart => {
+                    return Ok(PlayOutcome::Restarted);
+                }
+                Ok(()) => return Ok(PlayOutcome::Started),
                 Err(EngineError::FormatMismatch) if attempt == 0 => continue,
                 Err(error) => return Err(map_engine_error(error)),
             }
         }
         Err(PlaybackError::AudioBusy)
+    }
+
+    /// Applies the master volume to the current and every future stream.
+    pub fn apply_master_gain(&self, gain: MasterGain) -> Result<(), PlaybackError> {
+        self.engine
+            .set_master_gain(gain.linear())
+            .map_err(map_engine_error)
+    }
+
+    fn trigger_lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        // The guard protects no data, only the ordering of decisions.
+        self.trigger
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn stop_all(&self) -> Result<(), PlaybackError> {
@@ -127,14 +201,11 @@ impl PlaybackService {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn clip_for(&self, sound_id: i64, format: OutputFormat) -> Result<Arc<Clip>, PlaybackError> {
+    fn clip_for(&self, sound: &Sound, format: OutputFormat) -> Result<Arc<Clip>, PlaybackError> {
+        let sound_id = sound.id;
         if let Some(clip) = self.cache().get(sound_id, format) {
             return Ok(clip);
         }
-        let sound = self
-            .repository
-            .find_by_id(sound_id)?
-            .ok_or(PlaybackError::SoundNotFound)?;
 
         // Open once and check the very bytes that will be decoded: size first (cheap), then the SHA-256 recorded at import.
         let mut file = self.files.open_media(&sound.key).map_err(map_media_error)?;
@@ -159,6 +230,10 @@ impl PlaybackService {
         self.cache().insert(sound_id, format, Arc::clone(&clip));
         Ok(clip)
     }
+}
+
+fn voice_tag(sound_id: i64) -> Result<u64, PlaybackError> {
+    u64::try_from(sound_id).map_err(|_| PlaybackError::SoundNotFound)
 }
 
 fn map_engine_error(error: EngineError) -> PlaybackError {

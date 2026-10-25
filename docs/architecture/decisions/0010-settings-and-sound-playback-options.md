@@ -83,3 +83,27 @@ Approved as proposed, with these owner clarifications:
   media columns remain immutable; invalid gain, play mode, language and a second settings row are rejected; `integrity_check` ok.
   This does not test the Rust migration runner.
 - NOT VERIFIED: behaviour on Windows, the audible effect of gain and play modes.
+
+## Implementation notes (2026-10-25)
+- Migration `0002_settings_and_sound_options.sql` with the frozen fixture `schema_v2.sql` and a `SHIPPED_CHECKSUMS` entry. The
+  pre-upgrade `VACUUM INTO` backup covers 1 -> 2 (tested).
+- Domain: `SoundGain` (-6000..=600), `MasterGain` (-6000..=0), `PlayMode`, `Language`; the IPC layer uses `PlayModeDto` and a
+  language string validated by `Language::parse`. Stored values that no longer parse are `StorageError::Corrupt`.
+- `PlaybackService::play(id)` reads the sound's stored gain and mode (one read-only query per trigger) and decides with
+  `PlayMode::on_trigger`. The decision and the engine call that carries it out are serialized by one lock, so simultaneous
+  triggers of one sound cannot both decide on stale information (tested, mutation-checked).
+- `AudioEngine` tags voices (`play_tagged`), answers `playing(tag)` and `stop_tag(tag)` from its own thread, and treats a voice
+  that was asked to stop as no longer playing even while it fades out. Voice bookkeeping lives on the engine thread; the audio
+  callback is unchanged (the counting-allocator test still passes).
+- The engine keeps the linear master gain and applies it to every stream it opens, so a device change does not reset it.
+  `update_settings` stores first, then applies; the saved value is applied at startup.
+- The persisted master gain cannot be below -60 dB, but the engine accepts 0.0 so tests on a real device stay silent.
+- At the 32-voice limit the audio callback refuses the new voice and counts it (`rejected_plays`); nothing else is stopped. A
+  stopped voice keeps its slot for the 5 ms fade, so a `restart` at the limit can be refused as well.
+- New commands: `get_settings`, `update_settings`, `set_sound_options`. `play_sound` now returns `started`, `restarted`,
+  `stopped` or `ignored`. New error kind `invalidSetting`.
+- Not yet done: the settings and sound-option UI, and applying the saved language at startup (follow-up change).
+
+## Limits
+- NOT VERIFIED: audible gain and play modes on any hardware (checklist rows 12-14); Windows and Intel macOS.
+- A damaged or missing settings row has no repair procedure yet; the commands report `storageCorrupt`.

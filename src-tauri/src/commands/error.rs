@@ -4,6 +4,7 @@ use specta::Type;
 use crate::application::error::StorageError;
 use crate::application::import::ImportError;
 use crate::application::playback::PlaybackError;
+use crate::application::preferences::PreferencesError;
 
 /// The error contract of the IPC layer. It carries a machine-readable `kind` and, where useful, numbers.
 /// It never carries free text, file names or paths: the UI maps each `kind` to a message.
@@ -40,6 +41,8 @@ pub enum AppError {
     /// The audio engine is busy or did not answer in time.
     AudioBusy,
     SoundNotFound,
+    /// A setting or sound option is outside its range or names an unsupported choice.
+    InvalidSetting,
     /// The sound is too long to be decoded into memory for playback.
     PlaybackClipTooLong,
     PlaybackDecodeTimeout,
@@ -124,6 +127,22 @@ impl From<&PlaybackError> for AppError {
 
 impl From<PlaybackError> for AppError {
     fn from(error: PlaybackError) -> Self {
+        Self::from(&error)
+    }
+}
+
+impl From<&PreferencesError> for AppError {
+    fn from(error: &PreferencesError) -> Self {
+        match error {
+            PreferencesError::InvalidValue => Self::InvalidSetting,
+            PreferencesError::SoundNotFound => Self::SoundNotFound,
+            PreferencesError::Storage(storage) => Self::from(storage),
+        }
+    }
+}
+
+impl From<PreferencesError> for AppError {
+    fn from(error: PreferencesError) -> Self {
         Self::from(&error)
     }
 }

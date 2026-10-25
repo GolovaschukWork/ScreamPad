@@ -7,6 +7,7 @@ use crate::application::cancel::CancelToken;
 use crate::application::error::StorageError;
 use crate::application::import::ImportOutcome;
 use crate::application::ports::SoundRepository;
+use crate::domain::playback::PlayMode;
 use crate::domain::sound::Sound;
 use crate::infrastructure::sqlite::Database;
 use crate::state::{MediaStatus, PickerState, StorageState};
@@ -59,6 +60,38 @@ impl From<MediaStatus> for SoundStatus {
     }
 }
 
+/// What triggering a sound does while it is already playing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlayModeDto {
+    Overlap,
+    Restart,
+    Ignore,
+    Toggle,
+}
+
+impl From<PlayMode> for PlayModeDto {
+    fn from(mode: PlayMode) -> Self {
+        match mode {
+            PlayMode::Overlap => Self::Overlap,
+            PlayMode::Restart => Self::Restart,
+            PlayMode::Ignore => Self::Ignore,
+            PlayMode::Toggle => Self::Toggle,
+        }
+    }
+}
+
+impl From<PlayModeDto> for PlayMode {
+    fn from(mode: PlayModeDto) -> Self {
+        match mode {
+            PlayModeDto::Overlap => Self::Overlap,
+            PlayModeDto::Restart => Self::Restart,
+            PlayModeDto::Ignore => Self::Ignore,
+            PlayModeDto::Toggle => Self::Toggle,
+        }
+    }
+}
+
 /// A sound as shown in the library list.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -74,12 +107,15 @@ pub struct SoundSummary {
     #[specta(type = f64)]
     pub size_bytes: u64,
     pub status: SoundStatus,
+    /// Gain trim in millibels (1/100 dB), -6000..=600.
+    pub gain_millibels: i32,
+    pub play_mode: PlayModeDto,
 }
 
 /// Largest integer a JSON number (an IEEE double) holds exactly.
 const MAX_EXACT_NUMBER: u64 = 1 << 53;
 
-fn summarize(sound: &Sound, status: MediaStatus) -> Result<SoundSummary, AppError> {
+pub(super) fn summarize(sound: &Sound, status: MediaStatus) -> Result<SoundSummary, AppError> {
     if sound.size_bytes > MAX_EXACT_NUMBER {
         return Err(AppError::Internal);
     }
@@ -92,6 +128,8 @@ fn summarize(sound: &Sound, status: MediaStatus) -> Result<SoundSummary, AppErro
         channels: sound.channels,
         size_bytes: sound.size_bytes,
         status: status.into(),
+        gain_millibels: sound.gain.millibels(),
+        play_mode: sound.play_mode.into(),
     })
 }
 

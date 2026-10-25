@@ -11,6 +11,8 @@ use super::cancel::CancelToken;
 use super::error::StorageError;
 use crate::audio::backend::OutputFormat;
 use crate::audio::clip::Clip;
+use crate::domain::playback::{MasterGain, PlayMode, SoundGain};
+use crate::domain::settings::{Language, Settings};
 use crate::domain::sound::{AudioFormat, ContentHash, NewSound, Sound, StorageKey};
 
 /// What the application knows about a file it is about to read.
@@ -136,6 +138,26 @@ pub trait SoundRepository: Send + Sync {
     fn key_exists(&self, key: &StorageKey) -> Result<bool, StorageError>;
     fn media_refs(&self) -> Result<Vec<MediaRef>, StorageError>;
     fn list(&self) -> Result<Vec<Sound>, StorageError>;
+    /// Updates the editable playback options and returns the stored sound, or `None` when it does not exist.
+    fn set_options(
+        &self,
+        id: i64,
+        gain: SoundGain,
+        play_mode: PlayMode,
+        now_ms: i64,
+    ) -> Result<Option<Sound>, StorageError>;
+}
+
+/// The single row of application settings. The row is created by the migration; its absence is an integrity error
+/// (`StorageError::Corrupt`) and is never papered over with invented defaults.
+pub trait SettingsRepository: Send + Sync {
+    fn get(&self) -> Result<Settings, StorageError>;
+    fn save(
+        &self,
+        language: Language,
+        master_gain: MasterGain,
+        now_ms: i64,
+    ) -> Result<Settings, StorageError>;
 }
 
 pub trait Clock: Send + Sync {

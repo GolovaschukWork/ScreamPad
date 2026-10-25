@@ -60,6 +60,7 @@
     "audioUnavailable": "There is no audio output available right now. Check that speakers or headphones are connected.",
     "audioBusy": "Audio is busy. Try again in a moment.",
     "soundNotFound": "This sound is no longer in the library.",
+    "invalidSetting": "That value is not allowed for this setting.",
     "playbackClipTooLong": "This sound is too long to play.",
     "playbackDecodeTimeout": "Preparing this sound took too long."
   }
