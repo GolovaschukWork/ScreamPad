@@ -24,10 +24,17 @@ __pycache__/
 node_modules/
 dist/
 coverage/
+.vite/
+*.tsbuildinfo
 
 # Rust / Tauri build output
 target/
 src-tauri/gen/
+
+# Packaged installers (published through GitHub Releases only)
+*.dmg
+*.msi
+*.exe
 
 # Logs
 *.log
