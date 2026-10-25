@@ -176,6 +176,24 @@ impl PlaybackService {
         Err(PlaybackError::AudioBusy)
     }
 
+    /// Stops every voice of one sound. Stopping a sound that is not playing (or does not exist) is not an error.
+    pub fn stop(&self, sound_id: i64) -> Result<(), PlaybackError> {
+        let Ok(tag) = voice_tag(sound_id) else {
+            return Ok(());
+        };
+        let _decision = self.trigger_lock();
+        self.engine.stop_tag(tag).map_err(map_engine_error)
+    }
+
+    /// The ids of the sounds that are sounding right now, ascending.
+    pub fn playing_sounds(&self) -> Result<Vec<i64>, PlaybackError> {
+        let tags = self.engine.playing_tags().map_err(map_engine_error)?;
+        Ok(tags
+            .into_iter()
+            .filter_map(|tag| i64::try_from(tag).ok())
+            .collect())
+    }
+
     /// Applies the master volume to the current and every future stream.
     pub fn apply_master_gain(&self, gain: MasterGain) -> Result<(), PlaybackError> {
         self.engine

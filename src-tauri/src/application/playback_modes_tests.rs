@@ -341,3 +341,69 @@ fn an_unknown_sound_cannot_be_triggered() {
         Err(super::playback::PlaybackError::SoundNotFound)
     );
 }
+
+// --- stopping one sound and reporting what plays ------------------------------------------------------------------------
+
+#[test]
+fn stopping_one_sound_silences_only_that_sound() {
+    let rig = Rig::new();
+    let first = rig.import("tone.wav");
+    let second = rig.import("tone.flac");
+    rig.service.play(first.id).expect("first");
+    rig.service.play(second.id).expect("second");
+    assert_eq!(rig.service.playing_sounds(), Ok(vec![first.id, second.id]));
+
+    rig.service.stop(first.id).expect("stop");
+    assert_eq!(rig.service.playing_sounds(), Ok(vec![second.id]));
+    rig.pump(FLUSH_FRAMES);
+    assert!(peak(&rig.pump(256)) > 0.0, "the other sound keeps playing");
+}
+
+#[test]
+fn stop_ends_every_overlapping_voice_of_the_sound() {
+    let rig = Rig::new();
+    let sound = rig.import("tone.wav");
+    for _ in 0..3 {
+        assert_eq!(rig.service.play(sound.id), Ok(PlayOutcome::Started));
+    }
+    rig.service.stop(sound.id).expect("stop");
+    rig.pump(FLUSH_FRAMES);
+    assert!(
+        rig.pump(256).iter().all(|s| *s == 0.0),
+        "all three voices are gone"
+    );
+    assert_eq!(rig.service.playing_sounds(), Ok(Vec::new()));
+}
+
+#[test]
+fn stopping_a_sound_that_is_not_playing_or_does_not_exist_is_not_an_error() {
+    let rig = Rig::new();
+    let sound = rig.import("tone.wav");
+    assert_eq!(rig.service.stop(sound.id), Ok(()));
+    assert_eq!(rig.service.stop(424_242), Ok(()));
+    assert_eq!(rig.service.stop(-1), Ok(()));
+}
+
+#[test]
+fn a_sound_stops_being_reported_when_it_ends_by_itself() {
+    let rig = Rig::new();
+    let sound = rig.import("tone.wav");
+    rig.service.play(sound.id).expect("play");
+    assert_eq!(rig.service.playing_sounds(), Ok(vec![sound.id]));
+    // The 250 ms clip is 12 000 frames at 48 kHz.
+    rig.pump(13_000);
+    wait_for("the end to be seen", || {
+        rig.service.playing_sounds() == Ok(Vec::new())
+    });
+}
+
+#[test]
+fn stop_after_toggle_style_play_still_starts_again_afterwards() {
+    let rig = Rig::new();
+    let sound = rig.import("tone.wav");
+    rig.options(&sound, 0, PlayMode::Ignore);
+    assert_eq!(rig.service.play(sound.id), Ok(PlayOutcome::Started));
+    assert_eq!(rig.service.play(sound.id), Ok(PlayOutcome::Ignored));
+    rig.service.stop(sound.id).expect("stop");
+    assert_eq!(rig.service.play(sound.id), Ok(PlayOutcome::Started));
+}

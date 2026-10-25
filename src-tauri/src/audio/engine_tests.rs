@@ -388,3 +388,178 @@ fn dropping_the_engine_stops_the_stream() {
     }
     assert_eq!(shared.streams_alive(), 0);
 }
+
+// --- playing tags and change notifications ------------------------------------------------------------------------------
+
+use std::sync::Mutex;
+
+/// Records every set the engine reports to a listener.
+fn recorder(engine: &AudioEngine) -> Arc<Mutex<Vec<Vec<u64>>>> {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    engine
+        .on_playing_changed(move |tags| sink.lock().expect("recorder").push(tags.to_vec()))
+        .expect("listener");
+    seen
+}
+
+fn reported(seen: &Arc<Mutex<Vec<Vec<u64>>>>) -> Vec<Vec<u64>> {
+    seen.lock().expect("recorder").clone()
+}
+
+#[test]
+fn a_new_listener_is_told_the_current_state_at_once() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    let seen = recorder(&engine);
+    assert_eq!(reported(&seen), vec![Vec::<u64>::new()]);
+}
+
+#[test]
+fn playing_tags_are_sorted_deduplicated_and_ignore_untagged_voices() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    for tag in [7, 3, 7] {
+        engine
+            .play_tagged(clip(0.1, 48_000, STEREO_48K), 1.0, tag)
+            .expect("play");
+    }
+    engine
+        .play(clip(0.1, 48_000, STEREO_48K), 1.0)
+        .expect("untagged");
+    assert_eq!(engine.playing_tags(), Ok(vec![3, 7]));
+}
+
+#[test]
+fn the_listener_hears_a_start_a_stop_and_a_natural_end_exactly_once_each() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    let seen = recorder(&engine);
+
+    engine
+        .play_tagged(clip(0.1, 48_000, STEREO_48K), 1.0, 5)
+        .expect("play");
+    engine
+        .play_tagged(clip(0.1, 480, STEREO_48K), 1.0, 9)
+        .expect("short");
+    wait_for("both to be reported", || {
+        reported(&seen).contains(&vec![5, 9])
+    });
+
+    // The short clip (480 frames) ends by itself once the callback has run enough.
+    shared.pump(2_000);
+    wait_for("the natural end", || {
+        reported(&seen).last() == Some(&vec![5])
+    });
+
+    engine.stop_tag(5).expect("stop");
+    wait_for("the stop", || reported(&seen).last() == Some(&Vec::new()));
+
+    let history = reported(&seen);
+    assert_eq!(
+        history,
+        vec![Vec::new(), vec![5], vec![5, 9], vec![5], Vec::new()],
+        "each change exactly once, in order"
+    );
+}
+
+#[test]
+fn a_voice_that_is_fading_out_is_already_not_playing() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    engine
+        .play_tagged(clip(0.1, 48_000, STEREO_48K), 1.0, 1)
+        .expect("play");
+    engine.stop_tag(1).expect("stop");
+    // No audio callback has run since, so the voice still holds its slot.
+    assert_eq!(engine.playing_tags(), Ok(Vec::new()));
+}
+
+#[test]
+fn stopping_one_tag_leaves_the_others() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    engine
+        .play_tagged(clip(0.1, 48_000, STEREO_48K), 1.0, 1)
+        .expect("one");
+    engine
+        .play_tagged(clip(0.1, 48_000, STEREO_48K), 1.0, 2)
+        .expect("two");
+    engine.stop_tag(1).expect("stop");
+    assert_eq!(engine.playing_tags(), Ok(vec![2]));
+    engine
+        .stop_tag(99)
+        .expect("stopping an unknown tag is harmless");
+    assert_eq!(engine.playing_tags(), Ok(vec![2]));
+}
+
+#[test]
+fn a_rebuilt_stream_reports_that_nothing_is_playing_any_more() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    let seen = recorder(&engine);
+    engine
+        .play_tagged(clip(0.1, 48_000, STEREO_48K), 1.0, 4)
+        .expect("play");
+    wait_for("the start", || reported(&seen).last() == Some(&vec![4]));
+
+    shared.emit(StreamEvent::Invalidated);
+    wait_for("the rebuild", || engine.snapshot().opens == 2);
+    wait_for("the empty set", || {
+        reported(&seen).last() == Some(&Vec::new())
+    });
+}
+
+#[test]
+fn a_replaced_listener_stops_hearing_and_a_quiet_engine_stays_quiet() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    let first = recorder(&engine);
+    let second = recorder(&engine);
+    engine
+        .play_tagged(clip(0.1, 48_000, STEREO_48K), 1.0, 8)
+        .expect("play");
+    wait_for("the second to hear it", || {
+        reported(&second).last() == Some(&vec![8])
+    });
+    assert_eq!(
+        reported(&first),
+        vec![Vec::<u64>::new()],
+        "the first heard only its initial state"
+    );
+
+    // Nothing changes: no further reports, however long the engine's poll loop runs.
+    let before = reported(&second).len();
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(reported(&second).len(), before);
+}
+
+#[test]
+fn a_sound_that_ends_by_itself_is_noticed_quickly_even_with_a_slow_device_poll() {
+    let shared = FakeShared::new();
+    let backend_shared = Arc::clone(&shared);
+    let engine = AudioEngine::start(
+        EngineConfig {
+            poll_interval: Duration::from_secs(30),
+            retry_delays: vec![Duration::from_millis(10)],
+        },
+        move || Box::new(FakeBackend(backend_shared)),
+    )
+    .expect("engine thread");
+    wait_running(&engine);
+    let seen = recorder(&engine);
+    engine
+        .play_tagged(clip(0.1, 480, STEREO_48K), 1.0, 6)
+        .expect("play");
+    wait_for("the start", || reported(&seen).last() == Some(&vec![6]));
+    shared.pump(2_000);
+    // The device poll is 30 s away; only the voice watch can notice this within the test's deadline.
+    wait_for("the end", || reported(&seen).last() == Some(&Vec::new()));
+}

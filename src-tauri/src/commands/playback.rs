@@ -1,6 +1,7 @@
 use serde::Serialize;
 use specta::Type;
-use tauri::State;
+use tauri::{AppHandle, Runtime, State};
+use tauri_specta::Event;
 
 use super::error::AppError;
 use crate::application::playback::PlayOutcome;
@@ -82,6 +83,35 @@ pub async fn play_sound(
         .map_err(AppError::from)
 }
 
+/// Which sounds are sounding right now. Sent whenever the set changes, and once when the listener is registered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayingChanged {
+    /// Ids of the sounds with a voice playing, ascending.
+    pub ids: Vec<u32>,
+}
+
+/// Library ids as the UI knows them. An id that does not fit is dropped (the UI could not have listed that sound).
+pub fn playing_ids(tags: &[u64]) -> Vec<u32> {
+    tags.iter()
+        .filter_map(|tag| u32::try_from(*tag).ok())
+        .collect()
+}
+
+/// Forwards the engine's playing-set changes to the webview as `PlayingChanged` events.
+pub fn forward_playing_changes<R: Runtime>(
+    service: &crate::application::playback::PlaybackService,
+    app: AppHandle<R>,
+) {
+    // A failed registration leaves the UI on `playing_sounds` polling; nothing else depends on the event.
+    let _ = service.engine().on_playing_changed(move |tags| {
+        let _ = PlayingChanged {
+            ids: playing_ids(tags),
+        }
+        .emit(&app);
+    });
+}
+
 /// Stops every sound that is playing.
 #[tauri::command]
 #[specta::specta]
@@ -90,6 +120,33 @@ pub async fn stop_all_sounds(playback: State<'_, PlaybackState>) -> Result<(), A
     tauri::async_runtime::spawn_blocking(move || service.stop_all())
         .await
         .map_err(|_| AppError::Internal)?
+        .map_err(AppError::from)
+}
+
+/// Stops one sound (every voice of it). Stopping a sound that is not playing is not an error.
+#[tauri::command]
+#[specta::specta]
+pub async fn stop_sound(playback: State<'_, PlaybackState>, id: u32) -> Result<(), AppError> {
+    let service = playback.service()?;
+    tauri::async_runtime::spawn_blocking(move || service.stop(i64::from(id)))
+        .await
+        .map_err(|_| AppError::Internal)?
+        .map_err(AppError::from)
+}
+
+/// The sounds that are sounding right now. Use it for the initial state; changes arrive as `PlayingChanged` events.
+#[tauri::command]
+#[specta::specta]
+pub async fn playing_sounds(playback: State<'_, PlaybackState>) -> Result<Vec<u32>, AppError> {
+    let service = playback.service()?;
+    tauri::async_runtime::spawn_blocking(move || service.playing_sounds())
+        .await
+        .map_err(|_| AppError::Internal)?
+        .map(|ids| {
+            ids.into_iter()
+                .filter_map(|id| u32::try_from(id).ok())
+                .collect()
+        })
         .map_err(AppError::from)
 }
 
