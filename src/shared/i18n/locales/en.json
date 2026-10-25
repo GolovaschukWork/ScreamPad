@@ -14,7 +14,22 @@
   "sound": {
     "missing": "File missing",
     "damaged": "File damaged",
-    "list": "Sounds in your library"
+    "list": "Sounds in your library",
+    "play": "Play {{name}}",
+    "playShort": "Play",
+    "stopAll": "Stop all"
+  },
+  "audio": {
+    "starting": "Starting audio…",
+    "recovering": "Reconnecting to the audio output…",
+    "stopped": "Audio is stopped.",
+    "retry": "Try again",
+    "failed": {
+      "noDevice": "No audio output device is available. Connect one and try again.",
+      "permissionDenied": "ScreamPad is not allowed to use the audio output. Check the system privacy settings.",
+      "unsupportedFormat": "The audio output does not offer a format ScreamPad can use.",
+      "other": "The audio output could not be started."
+    }
   },
   "errors": {
     "storageBusy": "The library is busy. Try again in a moment.",
@@ -41,6 +56,11 @@
     "importDecodeTimeout": "Checking the audio took too long, so the import was stopped.",
     "libraryInconsistent": "The library already holds a different file where this sound would be stored. Nothing was changed.",
     "mediaMissing": "The file of this sound is missing from the library.",
-    "mediaCorrupt": "The file of this sound does not match what was imported and may be damaged."
+    "mediaCorrupt": "The file of this sound does not match what was imported and may be damaged.",
+    "audioUnavailable": "There is no audio output available right now. Check that speakers or headphones are connected.",
+    "audioBusy": "Audio is busy. Try again in a moment.",
+    "soundNotFound": "This sound is no longer in the library.",
+    "playbackClipTooLong": "This sound is too long to play.",
+    "playbackDecodeTimeout": "Preparing this sound took too long."
   }
 }

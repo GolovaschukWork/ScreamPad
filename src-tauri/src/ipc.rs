@@ -11,6 +11,10 @@ pub fn builder<R: tauri::Runtime>() -> Builder<R> {
         commands::library::library_stats,
         commands::library::list_sounds,
         commands::library::check_sound_media,
-        commands::library::import_sound
+        commands::library::import_sound,
+        commands::playback::play_sound,
+        commands::playback::stop_all_sounds,
+        commands::playback::audio_status,
+        commands::playback::retry_audio
     ])
 }

@@ -10,4 +10,4 @@ pub mod mixer;
 #[cfg(test)]
 mod engine_tests;
 #[cfg(test)]
-mod test_backend;
+pub(crate) mod test_backend;

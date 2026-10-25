@@ -182,6 +182,10 @@ impl MediaFs for FaultyFs {
     fn remove_media(&self, key: &StorageKey) -> io::Result<()> {
         self.inner.remove_media(key)
     }
+
+    fn open_media(&self, key: &StorageKey) -> io::Result<File> {
+        self.inner.open_media(key)
+    }
 }
 
 pub struct FaultyRepo {
@@ -190,6 +194,10 @@ pub struct FaultyRepo {
 }
 
 impl SoundRepository for FaultyRepo {
+    fn find_by_id(&self, id: i64) -> Result<Option<Sound>, StorageError> {
+        self.inner.find_by_id(id)
+    }
+
     fn find_by_hash(&self, hash: &ContentHash) -> Result<Option<Sound>, StorageError> {
         self.inner.find_by_hash(hash)
     }

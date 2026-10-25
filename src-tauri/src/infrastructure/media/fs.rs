@@ -216,6 +216,15 @@ impl MediaFs for OsMediaFs {
         }
     }
 
+    fn open_media(&self, key: &StorageKey) -> io::Result<File> {
+        let path = self.media_path(key);
+        // Never follow a link planted inside the library.
+        if !fs::symlink_metadata(&path)?.file_type().is_file() {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
+        File::open(path)
+    }
+
     fn remove_media(&self, key: &StorageKey) -> io::Result<()> {
         let path = self.media_path(key);
         match fs::symlink_metadata(&path) {

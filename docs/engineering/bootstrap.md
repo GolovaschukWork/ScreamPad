@@ -95,3 +95,10 @@ decoded and resampled to the device format outside the callback by `infrastructu
 The device engine (`audio/engine.rs`, `infrastructure/audio/cpal_backend.rs`) keeps the output stream alive across device changes.
 `cargo test --test audio_device -- --ignored` runs it silently against the real default output on a machine with audio hardware;
 `docs/engineering/audio-manual-checklist.md` lists the manual checks CI cannot do.
+
+## Playing sounds
+
+`PlaybackService` plays library sounds through the audio engine: it verifies the managed file against its recorded SHA-256, decodes
+it for the current output format, caches the result, and hands it to the engine. The UI lists sounds with a Play button and shows
+the state of the audio output. Run `cargo test --test audio_device -- --ignored` on a machine with audio hardware for a silent
+end-to-end check of the real output; see `docs/engineering/audio-manual-checklist.md` for the manual device checks.

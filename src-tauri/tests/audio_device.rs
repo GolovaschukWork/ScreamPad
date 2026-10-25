@@ -69,3 +69,70 @@ fn the_real_default_output_pulls_audio_through_the_engine() {
     engine.shutdown();
     assert_eq!(engine.snapshot().state, EngineState::Stopped);
 }
+
+/// The whole path on real hardware: import a file, then play it through the real output. The gain is zero, so nothing is
+/// audible, but the file is hashed, decoded, resampled to the device rate and mixed by the real callback.
+#[test]
+#[ignore = "needs an audio output device"]
+fn an_imported_sound_plays_through_the_real_output_silently() {
+    use soundboard_desktop_lib::application::cancel::CancelToken;
+    use soundboard_desktop_lib::application::import::ImportOutcome;
+    use soundboard_desktop_lib::application::playback::{PlaybackLimits, PlaybackService};
+    use soundboard_desktop_lib::infrastructure::media::decode::SymphoniaClipDecoder;
+    use soundboard_desktop_lib::infrastructure::sqlite::{Database, migrations};
+    use soundboard_desktop_lib::state::StorageState;
+
+    let dir = std::env::temp_dir().join(format!("screampad-device-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let database = Database::open(&dir.join("library.db"), &migrations()).expect("database");
+    let storage = StorageState::ready(Arc::new(database), &dir.join("library"));
+    let library = storage.library().expect("library");
+
+    let fixture = format!(
+        "{}/tests/fixtures/audio/tone.mp3",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let sound = match library
+        .importer
+        .import(std::path::Path::new(&fixture), &CancelToken::new())
+    {
+        Ok(ImportOutcome::Imported(sound)) => sound,
+        other => panic!("import failed: {other:?}"),
+    };
+
+    let engine = Arc::new(
+        AudioEngine::start(EngineConfig::production(), || Box::new(CpalBackend::new()))
+            .expect("engine"),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while engine.snapshot().state != EngineState::Running {
+        assert!(
+            Instant::now() < deadline,
+            "no output stream: {:?}",
+            engine.snapshot()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let service = PlaybackService::new(
+        library.repository.clone(),
+        library.files.clone(),
+        Arc::new(SymphoniaClipDecoder),
+        Arc::clone(&engine),
+        PlaybackLimits::provisional(),
+    );
+
+    // A 44.1 kHz or 8 kHz file on a 48 kHz device: the resampler is on the path.
+    service.play(sound.id, 0.0).expect("play");
+    service
+        .play(sound.id, 0.0)
+        .expect("play again from the cache");
+    std::thread::sleep(Duration::from_millis(700));
+
+    let snapshot = engine.snapshot();
+    println!("after playing: {snapshot:?}");
+    assert!(snapshot.callbacks > 0);
+    assert_eq!(snapshot.rejected_plays, 0);
+    assert_eq!(snapshot.state, EngineState::Running);
+    engine.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}

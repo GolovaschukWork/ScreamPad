@@ -21,6 +21,19 @@ impl SqliteSoundRepository {
 }
 
 impl SoundRepository for SqliteSoundRepository {
+    fn find_by_id(&self, id: i64) -> Result<Option<Sound>, StorageError> {
+        let reader = self.database.reader()?;
+        let row = reader
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM sounds WHERE id = ?1"),
+                [id],
+                map_row,
+            )
+            .optional()?;
+        row.map(|parsed| parsed.map_err(|_| StorageError::Corrupt))
+            .transpose()
+    }
+
     fn find_by_hash(&self, hash: &ContentHash) -> Result<Option<Sound>, StorageError> {
         let reader = self.database.reader()?;
         find_by_hash(&reader, hash)

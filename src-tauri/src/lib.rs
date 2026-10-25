@@ -13,7 +13,7 @@ use tauri::Manager;
 
 use commands::error::AppError;
 use infrastructure::dialog::TauriFilePicker;
-use state::{PickerState, StorageState};
+use state::{PickerState, PlaybackState, StorageState};
 
 pub fn run() {
     tauri::Builder::default()
@@ -25,7 +25,9 @@ pub fn run() {
                 Err(_) => StorageState::Unavailable(AppError::StorageIo),
             };
             let library = storage.library().ok();
+            let playback = PlaybackState::start(&storage);
             app.manage(storage);
+            app.manage(playback);
             app.manage(PickerState(std::sync::Arc::new(TauriFilePicker::new(
                 app.handle().clone(),
             ))));
@@ -37,6 +39,14 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Stop the audio stream and its thread before the process ends.
+            if let tauri::RunEvent::Exit = event
+                && let Some(playback) = app.try_state::<PlaybackState>()
+            {
+                playback.shutdown();
+            }
+        });
 }

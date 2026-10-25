@@ -10,10 +10,26 @@ use rubato::{Fft, FixedSync, Resampler};
 
 use super::probe::{decode_all, open};
 use crate::application::cancel::CancelToken;
-use crate::application::ports::{ProbeError, ProbeLimits};
+use crate::application::ports::{ClipDecoder, ProbeError, ProbeLimits};
 use crate::audio::backend::OutputFormat;
 use crate::audio::clip::Clip;
 use crate::audio::convert::remap_channels;
+
+/// The production [`ClipDecoder`].
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SymphoniaClipDecoder;
+
+impl ClipDecoder for SymphoniaClipDecoder {
+    fn decode(
+        &self,
+        file: File,
+        target: OutputFormat,
+        limits: &ProbeLimits,
+        cancel: &CancelToken,
+    ) -> Result<Arc<Clip>, ProbeError> {
+        decode_clip(file, target, limits, cancel)
+    }
+}
 
 /// Input chunk of the resampler, in frames. Any value works for whole-clip conversion; this keeps the filter state small.
 const RESAMPLE_CHUNK: usize = 1024;

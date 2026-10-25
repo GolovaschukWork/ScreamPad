@@ -17,11 +17,19 @@ use tauri::webview::InvokeRequest;
 use soundboard_desktop_lib::application::cancel::CancelToken;
 use soundboard_desktop_lib::application::error::StorageError;
 use soundboard_desktop_lib::application::import::{ImportError, ImportOutcome};
+use soundboard_desktop_lib::application::playback::{
+    PlaybackError, PlaybackLimits, PlaybackService,
+};
 use soundboard_desktop_lib::application::ports::FilePicker;
+use soundboard_desktop_lib::audio::backend::{
+    AudioBackend, BackendError, EventSink, OutputFormat, RenderFn, RunningStream,
+};
+use soundboard_desktop_lib::audio::engine::{AudioEngine, EngineConfig, EngineState};
 use soundboard_desktop_lib::commands::error::AppError;
+use soundboard_desktop_lib::infrastructure::media::decode::SymphoniaClipDecoder;
 use soundboard_desktop_lib::infrastructure::sqlite::{Database, migrations};
 use soundboard_desktop_lib::ipc::builder;
-use soundboard_desktop_lib::state::{PickerState, StorageState};
+use soundboard_desktop_lib::state::{PickerState, PlaybackState, StorageState};
 
 /// Regenerates `src/shared/ipc/bindings.ts`. CI fails when the committed file differs from the generated one.
 #[test]
@@ -38,23 +46,25 @@ const LOCAL_ORIGIN: &str = "http://tauri.localhost";
 #[cfg(not(windows))]
 const LOCAL_ORIGIN: &str = "tauri://localhost";
 
-/// Sends a command through Tauri's IPC layer on the mock runtime, as the webview would.
-fn invoke(cmd: &str, storage: Option<StorageState>) -> Result<Value, Value> {
-    invoke_with(cmd, storage, None)
-}
-
-/// Same, with a file picker that answers without opening a dialog.
-fn invoke_with(
-    cmd: &str,
+/// The application state a test wants registered, like the real `setup` does.
+#[derive(Default)]
+struct Parts {
     storage: Option<StorageState>,
     picker: Option<PickerState>,
-) -> Result<Value, Value> {
+    playback: Option<PlaybackState>,
+}
+
+/// Sends a command with a JSON body through Tauri's IPC layer on the mock runtime, as the webview would.
+fn call(cmd: &str, body: Value, parts: Parts) -> Result<Value, Value> {
     let mut builder_app = mock_builder().invoke_handler(builder::<MockRuntime>().invoke_handler());
-    if let Some(storage) = storage {
+    if let Some(storage) = parts.storage {
         builder_app = builder_app.manage(storage);
     }
-    if let Some(picker) = picker {
+    if let Some(picker) = parts.picker {
         builder_app = builder_app.manage(picker);
+    }
+    if let Some(playback) = parts.playback {
+        builder_app = builder_app.manage(playback);
     }
     let app = builder_app
         .build(mock_context(noop_assets()))
@@ -69,12 +79,41 @@ fn invoke_with(
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: LOCAL_ORIGIN.parse().expect("valid url"),
-            body: InvokeBody::default(),
+            body: InvokeBody::Json(body),
             headers: Default::default(),
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
     .map(|body| body.deserialize().expect("response is JSON"))
+}
+
+/// Sends a command without arguments.
+fn invoke(cmd: &str, storage: Option<StorageState>) -> Result<Value, Value> {
+    call(
+        cmd,
+        json!({}),
+        Parts {
+            storage,
+            ..Parts::default()
+        },
+    )
+}
+
+/// Same, with a file picker that answers without opening a dialog.
+fn invoke_with(
+    cmd: &str,
+    storage: Option<StorageState>,
+    picker: Option<PickerState>,
+) -> Result<Value, Value> {
+    call(
+        cmd,
+        json!({}),
+        Parts {
+            storage,
+            picker,
+            ..Parts::default()
+        },
+    )
 }
 
 /// A picker that returns a fixed answer, like a user who always chooses (or cancels) the same thing.
@@ -477,5 +516,299 @@ fn the_window_capability_grants_no_dialog_or_file_system_permission() {
                 "{file:?} grants {name}"
             );
         }
+    }
+}
+
+// --- playback ---------------------------------------------------------------------------------------------------------
+
+const TEST_FORMAT: OutputFormat = OutputFormat {
+    sample_rate: 48_000,
+    channels: 2,
+};
+
+type SharedRender = Arc<std::sync::Mutex<Option<RenderFn>>>;
+
+/// A minimal audio API: it keeps the callback so a test can pump it by hand, or fails to open.
+struct TestBackend {
+    render: SharedRender,
+    fail_with: Option<BackendError>,
+}
+
+struct TestStream;
+impl RunningStream for TestStream {}
+
+impl AudioBackend for TestBackend {
+    fn open_default_output(
+        &mut self,
+        make_render: &mut dyn FnMut(OutputFormat) -> RenderFn,
+        _events: EventSink,
+    ) -> Result<(Box<dyn RunningStream>, OutputFormat), BackendError> {
+        if let Some(error) = self.fail_with {
+            return Err(error);
+        }
+        *self.render.lock().expect("render") = Some(make_render(TEST_FORMAT));
+        Ok((Box::new(TestStream), TEST_FORMAT))
+    }
+
+    fn default_output_id(&mut self) -> Option<String> {
+        Some("test-output".to_owned())
+    }
+}
+
+fn playback_for(
+    state: &StorageState,
+    fail_with: Option<BackendError>,
+) -> (PlaybackState, SharedRender) {
+    let library = state.library().expect("ready");
+    let render: SharedRender = Arc::new(std::sync::Mutex::new(None));
+    let backend_render = Arc::clone(&render);
+    let config = EngineConfig {
+        poll_interval: std::time::Duration::from_millis(10),
+        retry_delays: vec![std::time::Duration::from_millis(10)],
+    };
+    let engine = AudioEngine::start(config, move || {
+        Box::new(TestBackend {
+            render: backend_render,
+            fail_with,
+        })
+    })
+    .expect("engine");
+    let service = PlaybackService::new(
+        library.repository.clone(),
+        library.files.clone(),
+        Arc::new(SymphoniaClipDecoder),
+        Arc::new(engine),
+        PlaybackLimits::provisional(),
+    );
+    (PlaybackState::ready(service), render)
+}
+
+fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !condition() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for: {what}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+fn wait_running(playback: &PlaybackState) {
+    let service = playback.service().expect("ready");
+    wait_until("the engine to run", || {
+        service.engine().snapshot().state == EngineState::Running
+    });
+}
+
+fn pump(render: &SharedRender, frames: usize) -> Vec<f32> {
+    let mut guard = render.lock().expect("render");
+    let callback = guard.as_mut().expect("a stream is open");
+    let mut out = vec![9.0; frames * 2];
+    callback(&mut out);
+    out
+}
+
+fn play(state: &StorageState, playback: PlaybackState, id: u32) -> Result<Value, Value> {
+    call(
+        "play_sound",
+        json!({ "id": id }),
+        Parts {
+            storage: Some(StorageState::Ready(state.library().expect("ready"))),
+            playback: Some(playback),
+            ..Parts::default()
+        },
+    )
+}
+
+fn first_sound_id(state: &StorageState) -> u32 {
+    let sounds = soundboard_desktop_lib::application::ports::SoundRepository::list(
+        state.library().expect("ready").repository.as_ref(),
+    )
+    .expect("rows");
+    u32::try_from(sounds[0].id).expect("small id")
+}
+
+#[test]
+fn play_sound_makes_an_imported_sound_audible_and_stop_all_sounds_silences_it() {
+    let (dir, storage) = library_with_two_sounds("play");
+    let (playback, render) = playback_for(&storage, None);
+    wait_running(&playback);
+    let service = playback.service().expect("ready");
+    let id = first_sound_id(&storage);
+
+    let result =
+        play(&storage, PlaybackState::Ready(Arc::clone(&service)), id).expect("play failed");
+    assert_eq!(result, Value::Null);
+    wait_until("sound", || {
+        pump(&render, 256).iter().any(|s| s.abs() > 0.01)
+    });
+
+    let stopped = call(
+        "stop_all_sounds",
+        json!({}),
+        Parts {
+            playback: Some(PlaybackState::Ready(Arc::clone(&service))),
+            ..Parts::default()
+        },
+    );
+    assert_eq!(stopped, Ok(Value::Null));
+    wait_until("silence", || pump(&render, 256).iter().all(|s| *s == 0.0));
+    service.engine().shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn play_sound_reports_unknown_missing_and_damaged_sounds_as_typed_errors() {
+    let (dir, storage) = library_with_two_sounds("play-errors");
+    let (playback, _render) = playback_for(&storage, None);
+    wait_running(&playback);
+    let service = playback.service().expect("ready");
+
+    let unknown = play(
+        &storage,
+        PlaybackState::Ready(Arc::clone(&service)),
+        987_654,
+    )
+    .expect_err("must fail");
+    assert_eq!(unknown, json!({ "kind": "soundNotFound" }));
+
+    // A missing file found by the last reconciliation is answered without touching the disk or the decoder.
+    let library = storage.library().expect("ready");
+    let rows = soundboard_desktop_lib::application::ports::SoundRepository::list(
+        library.repository.as_ref(),
+    )
+    .expect("rows");
+    let path = dir.join("library").join("media").join(rows[0].key.as_str());
+    let mut permissions = std::fs::metadata(&path).expect("meta").permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).expect("permissions");
+    std::fs::remove_file(&path).expect("remove");
+    library.reconcile().expect("reconcile");
+    let missing = play(
+        &storage,
+        PlaybackState::Ready(Arc::clone(&service)),
+        u32::try_from(rows[0].id).expect("id"),
+    )
+    .expect_err("must fail");
+    assert_eq!(missing, json!({ "kind": "mediaMissing" }));
+
+    // The other sound still plays.
+    let fine = play(
+        &storage,
+        PlaybackState::Ready(Arc::clone(&service)),
+        u32::try_from(rows[1].id).expect("id"),
+    );
+    assert_eq!(fine, Ok(Value::Null));
+    service.engine().shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn audio_status_describes_a_running_output_and_a_failed_one() {
+    let (dir, storage) = library_with_two_sounds("status");
+
+    let (running, _render) = playback_for(&storage, None);
+    wait_running(&running);
+    let status = call(
+        "audio_status",
+        json!({}),
+        Parts {
+            playback: Some(PlaybackState::Ready(running.service().expect("ready"))),
+            ..Parts::default()
+        },
+    )
+    .expect("status");
+    assert_eq!(
+        status,
+        json!({ "state": "running", "failure": null, "sampleRate": 48000, "channels": 2 })
+    );
+    running.shutdown();
+
+    let (failing, _render) = playback_for(&storage, Some(BackendError::Unsupported));
+    let service = failing.service().expect("ready");
+    wait_until("failure", || {
+        matches!(service.engine().snapshot().state, EngineState::Failed(_))
+    });
+    let status = call(
+        "audio_status",
+        json!({}),
+        Parts {
+            playback: Some(PlaybackState::Ready(Arc::clone(&service))),
+            ..Parts::default()
+        },
+    )
+    .expect("status");
+    assert_eq!(
+        status,
+        json!({ "state": "failed", "failure": "unsupportedFormat", "sampleRate": null, "channels": null })
+    );
+
+    let refused = play(
+        &storage,
+        PlaybackState::Ready(Arc::clone(&service)),
+        first_sound_id(&storage),
+    )
+    .expect_err("must fail");
+    assert_eq!(refused, json!({ "kind": "audioUnavailable" }));
+    let retried = call(
+        "retry_audio",
+        json!({}),
+        Parts {
+            playback: Some(PlaybackState::Ready(service)),
+            ..Parts::default()
+        },
+    );
+    assert_eq!(retried, Ok(Value::Null));
+    failing.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn when_audio_is_unavailable_every_playback_command_says_so() {
+    let (dir, storage) = library_with_two_sounds("unavailable");
+    for (cmd, body) in [
+        ("play_sound", json!({ "id": 1 })),
+        ("stop_all_sounds", json!({})),
+        ("audio_status", json!({})),
+        ("retry_audio", json!({})),
+    ] {
+        let parts = Parts {
+            storage: Some(StorageState::Ready(storage.library().expect("ready"))),
+            playback: Some(PlaybackState::Unavailable(AppError::Internal)),
+            ..Parts::default()
+        };
+        assert_eq!(
+            call(cmd, body, parts),
+            Err(json!({ "kind": "internal" })),
+            "{cmd}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn every_playback_failure_maps_to_a_typed_error_without_details() {
+    let failures = [
+        (PlaybackError::SoundNotFound, "soundNotFound"),
+        (PlaybackError::MediaMissing, "mediaMissing"),
+        (PlaybackError::MediaCorrupt, "mediaCorrupt"),
+        (PlaybackError::ClipTooLong, "playbackClipTooLong"),
+        (PlaybackError::DecodeTimeout, "playbackDecodeTimeout"),
+        (PlaybackError::AudioUnavailable, "audioUnavailable"),
+        (PlaybackError::AudioBusy, "audioBusy"),
+        (
+            PlaybackError::Io(std::io::ErrorKind::PermissionDenied),
+            "storageIo",
+        ),
+        (PlaybackError::Storage(StorageError::Full), "storageFull"),
+    ];
+    for (error, kind) in failures {
+        assert_eq!(
+            serde_json::to_value(AppError::from(&error)).expect("json"),
+            json!({ "kind": kind }),
+            "{error:?}"
+        );
     }
 }

@@ -1,6 +1,6 @@
 # ADR 0006: Audio Engine Threading, Buffering, Callback Safety And Device Lifecycle
 
-- Status: Accepted (owner decisions of 2026-10-25: `cpal`, `rtrb 0.4.0`, `rubato 5.0.1`, `panic = unwind`); mixer, clip decoding and the device engine implemented; playback commands and manual device verification pending
+- Status: Accepted (owner decisions of 2026-10-25: `cpal`, `rtrb 0.4.0`, `rubato 5.0.1`, `panic = unwind`); mixer, clip decoding, the device engine and the playback commands implemented; manual device verification pending
 - Date: 2026-10-25
 - Owner: TBD
 
@@ -165,6 +165,32 @@ Implemented in `audio/backend.rs`, `audio/engine.rs` and `infrastructure/audio/c
 - **Not verified:** unplugging, switching the default device, sample-rate changes, sleep and wake, Bluetooth, and everything on
   Windows 11 and Intel macOS. The manual checklist is `docs/engineering/audio-manual-checklist.md`. Latency, glitch rate and CPU
   are not measured.
+
+## Implementation notes (playback service and commands, 2026-10-25)
+Implemented in `application/playback.rs`, `application/clip_cache.rs`, `commands/playback.rs` and `features/library`.
+
+- **Playing a sound** (`PlaybackService::play`): read the output format from the engine, take the decoded clip from the cache or
+  prepare it, hand it to the engine. Preparing opens the managed file **once**, compares its size with the recorded one, hashes
+  those same bytes with SHA-256 against `content_hash` (ADR 0007: verified when a clip is loaded), rewinds, and decodes. Tampered
+  bytes never reach the decoder. A missing file is `mediaMissing`; a different size, hash or an undecodable file is `mediaCorrupt`.
+- **Cache:** least recently used, with a byte budget (provisional 64 MiB), emptied when the output format changes. Triggering a
+  sound again does not decode it again. A clip larger than the budget is played but not cached.
+- **Device switch races:** if the format changes between preparing a clip and handing it over, the engine refuses it
+  (`FormatMismatch`) and the service decodes it again once, for the new format.
+- **Limits (provisional until measured):** clip length 60 s, decode time 30 s, cache 64 MiB.
+- **IPC:** `play_sound(id)`, `stop_all_sounds`, `audio_status` and `retry_audio`. `play_sound` first consults the last
+  reconciliation, so a file already known to be missing or damaged is reported without touching the disk. New error kinds:
+  `audioUnavailable`, `audioBusy`, `soundNotFound`, `playbackClipTooLong`, `playbackDecodeTimeout`, all with English and
+  Ukrainian text. The engine starts at launch and is stopped on `RunEvent::Exit`.
+- **UI:** a Play button per sound, "Stop all", and a banner for the output state (starting, reconnecting, failed with a reason and
+  a retry button). The state is refreshed every two seconds while the window is visible; a typed event can replace polling later.
+- **Evidence:** 15 playback tests with real adapters and a fake audio API (cache, format change, device switch race, tampering by
+  size, by content with the same size and by a planted link, limits, unavailable output, stop, threads), 5 IPC tests through the
+  command layer, and a silent end-to-end test on the real output (`tests/audio_device.rs`, ignored by default).
+- **Observed on real hardware (macOS arm64, 11 sessions):** 48 kHz stereo, about 10 ms per callback, one xrun in the very first
+  session and none in the following ten. Not enough to state a glitch rate.
+- **Not done:** no gain control in the UI (fixed at unity); AAC delay is still untrimmed; sounds are one-shot (no loop,
+  retrigger policy or per-sound volume yet); no global shortcuts or tray playback.
 
 ## Risks and decisions for the owner
 1. **Panic strategy (decided by the owner on 2026-10-25): keep the default `panic = "unwind"`.** The Tauri template's

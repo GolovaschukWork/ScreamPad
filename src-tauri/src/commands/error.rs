@@ -3,6 +3,7 @@ use specta::Type;
 
 use crate::application::error::StorageError;
 use crate::application::import::ImportError;
+use crate::application::playback::PlaybackError;
 
 /// The error contract of the IPC layer. It carries a machine-readable `kind` and, where useful, numbers.
 /// It never carries free text, file names or paths: the UI maps each `kind` to a message.
@@ -34,6 +35,14 @@ pub enum AppError {
     ImportTooLong,
     ImportDecodeTimeout,
     LibraryInconsistent,
+    /// There is no running audio output right now (starting, reconnecting, failed or stopped).
+    AudioUnavailable,
+    /// The audio engine is busy or did not answer in time.
+    AudioBusy,
+    SoundNotFound,
+    /// The sound is too long to be decoded into memory for playback.
+    PlaybackClipTooLong,
+    PlaybackDecodeTimeout,
     /// The sound's managed file is gone. The database row is kept.
     MediaMissing,
     /// The sound's managed file does not match what was recorded.
@@ -93,6 +102,28 @@ impl From<&ImportError> for AppError {
 
 impl From<ImportError> for AppError {
     fn from(error: ImportError) -> Self {
+        Self::from(&error)
+    }
+}
+
+impl From<&PlaybackError> for AppError {
+    fn from(error: &PlaybackError) -> Self {
+        match error {
+            PlaybackError::SoundNotFound => Self::SoundNotFound,
+            PlaybackError::MediaMissing => Self::MediaMissing,
+            PlaybackError::MediaCorrupt => Self::MediaCorrupt,
+            PlaybackError::ClipTooLong => Self::PlaybackClipTooLong,
+            PlaybackError::DecodeTimeout => Self::PlaybackDecodeTimeout,
+            PlaybackError::AudioUnavailable => Self::AudioUnavailable,
+            PlaybackError::AudioBusy => Self::AudioBusy,
+            PlaybackError::Storage(storage) => Self::from(storage),
+            PlaybackError::Io(_) => Self::StorageIo,
+        }
+    }
+}
+
+impl From<PlaybackError> for AppError {
+    fn from(error: PlaybackError) -> Self {
         Self::from(&error)
     }
 }

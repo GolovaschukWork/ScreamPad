@@ -6,9 +6,13 @@ use std::time::SystemTime;
 use crate::application::active::ActiveImports;
 use crate::application::error::StorageError;
 use crate::application::import::{ImportLimits, ImportService};
+use crate::application::playback::{PlaybackLimits, PlaybackService};
 use crate::application::ports::FilePicker;
 use crate::application::reconcile::{ORPHAN_GRACE, ReconcileReport, reconcile};
+use crate::audio::engine::{AudioEngine, EngineConfig};
 use crate::commands::error::AppError;
+use crate::infrastructure::audio::cpal_backend::CpalBackend;
+use crate::infrastructure::media::decode::SymphoniaClipDecoder;
 use crate::infrastructure::media::fs::OsMediaFs;
 use crate::infrastructure::media::probe::SymphoniaProbe;
 use crate::infrastructure::sqlite::{Database, SqliteSoundRepository, migrations};
@@ -138,3 +142,51 @@ impl StorageState {
 
 /// How the user chooses a file to import. Production uses the native dialog; tests use a fixed answer.
 pub struct PickerState(pub Arc<dyn FilePicker>);
+
+/// The audio side of the app: the engine that keeps the output stream alive and the service that plays library sounds.
+/// Unavailable when the library could not be opened or the engine thread could not start.
+pub enum PlaybackState {
+    Ready(Arc<PlaybackService>),
+    Unavailable(AppError),
+}
+
+impl PlaybackState {
+    /// Starts the audio engine on the real default output. The engine opens the device in the background, so this returns at
+    /// once even when there is no output device.
+    pub fn start(storage: &StorageState) -> Self {
+        let library = match storage.library() {
+            Ok(library) => library,
+            Err(error) => return Self::Unavailable(error),
+        };
+        let engine =
+            match AudioEngine::start(EngineConfig::production(), || Box::new(CpalBackend::new())) {
+                Ok(engine) => engine,
+                Err(_) => return Self::Unavailable(AppError::Internal),
+            };
+        Self::ready(PlaybackService::new(
+            library.repository.clone(),
+            library.files.clone(),
+            Arc::new(SymphoniaClipDecoder),
+            Arc::new(engine),
+            PlaybackLimits::provisional(),
+        ))
+    }
+
+    pub fn ready(service: PlaybackService) -> Self {
+        Self::Ready(Arc::new(service))
+    }
+
+    pub fn service(&self) -> Result<Arc<PlaybackService>, AppError> {
+        match self {
+            Self::Ready(service) => Ok(Arc::clone(service)),
+            Self::Unavailable(error) => Err(error.clone()),
+        }
+    }
+
+    /// Stops the audio stream and its thread. Called when the application exits.
+    pub fn shutdown(&self) {
+        if let Self::Ready(service) = self {
+            service.engine().shutdown();
+        }
+    }
+}

@@ -17,6 +17,14 @@ export const commands = {
 	 *  cancelled the dialog. The webview never supplies a path, so it cannot make the app read an arbitrary file.
 	 */
 	importSound: () => typedError<ImportResult | null, AppError>(__TAURI_INVOKE("import_sound")),
+	/**  Plays a library sound. The first play of a sound decodes it, so the work runs on the blocking pool. */
+	playSound: (id: number) => typedError<null, AppError>(__TAURI_INVOKE("play_sound", { id })),
+	/**  Stops every sound that is playing. */
+	stopAllSounds: () => typedError<null, AppError>(__TAURI_INVOKE("stop_all_sounds")),
+	/**  The state of the audio output, for the UI to show. */
+	audioStatus: () => typedError<AudioStatus_Serialize, AppError>(__TAURI_INVOKE("audio_status")),
+	/**  Asks a failed audio output to try again now. */
+	retryAudio: () => typedError<null, AppError>(__TAURI_INVOKE("retry_audio")),
 };
 
 /* Types */
@@ -25,6 +33,12 @@ export const commands = {
  *  It never carries free text, file names or paths: the UI maps each `kind` to a message.
  */
 export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kind: "storageCorrupt" } | { kind: "storageTooNew"; database: number; supported: number } | { kind: "storageMigration" } | { kind: "storageConstraint" } | { kind: "storageIo" } | { kind: "importBusy" } | { kind: "importCancelled" } | { kind: "importSourceUnreadable" } | { kind: "importSourceNotRegularFile" } | { kind: "importSourceChanged" } | { kind: "importEmpty" } | { kind: "importTooLarge" } | { kind: "importStagingQuotaExceeded" } | { kind: "importDiskFull" } | { kind: "importUnsupportedFormat" } | { kind: "importCorrupt" } | { kind: "importTooLong" } | { kind: "importDecodeTimeout" } | { kind: "libraryInconsistent" } | 
+/**  There is no running audio output right now (starting, reconnecting, failed or stopped). */
+{ kind: "audioUnavailable" } | 
+/**  The audio engine is busy or did not answer in time. */
+{ kind: "audioBusy" } | { kind: "soundNotFound" } | 
+/**  The sound is too long to be decoded into memory for playback. */
+{ kind: "playbackClipTooLong" } | { kind: "playbackDecodeTimeout" } | 
 /**  The sound's managed file is gone. The database row is kept. */
 { kind: "mediaMissing" } | 
 /**  The sound's managed file does not match what was recorded. */
@@ -34,6 +48,28 @@ export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kin
 export type AppInfo = {
 	name: string,
 	version: string,
+};
+
+/**  Why the audio output failed, when it did. */
+export type AudioFailure = "noDevice" | "permissionDenied" | "unsupportedFormat" | "other";
+
+export type AudioStatus = AudioStatus_Serialize | AudioStatus_Deserialize;
+
+/**  Where the audio output stands. */
+export type AudioStatusKind = "starting" | "running" | "recovering" | "failed" | "stopped";
+
+export type AudioStatus_Deserialize = {
+	state: AudioStatusKind,
+	failure?: AudioFailure | null,
+	sampleRate?: number | null,
+	channels?: number | null,
+};
+
+export type AudioStatus_Serialize = {
+	state: AudioStatusKind,
+	failure: AudioFailure | null,
+	sampleRate: number | null,
+	channels: number | null,
 };
 
 /**  Result of a completed import. */
