@@ -17,9 +17,9 @@ Setup: start the app (`pnpm tauri dev`), import a clip of a few seconds, and pla
 | 6 | Put the computer to sleep and wake it | The next sound plays, or the app reports that audio is unavailable and recovers after a retry |
 | 7 | Disable every output device (no output at all) | The app shows that no audio output is available and does not crash; enabling a device recovers it |
 | 8 | Trigger the same sound 20 times quickly | No crash and no growing memory; at most 32 sounds overlap, extra triggers are ignored |
-| 11 | Press Stop all while a loud sound plays | The sound dies away in a few milliseconds with no click or pop |
 | 9 | Start a long sound and close the window | The app exits cleanly, with no hanging process |
 | 10 | Play a sound from an AAC (m4a) file and from a WAV file of similar content | The AAC sound starts as promptly as the WAV one (its encoder delay is trimmed from the file's edit list). Files whose encoder wrote no edit list may still start slightly late; note any you find |
+| 11 | Press Stop all while a loud sound plays | The sound dies away in a few milliseconds with no click or pop |
 
 ## Results
 
