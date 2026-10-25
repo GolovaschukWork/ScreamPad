@@ -4,6 +4,8 @@ mod connection;
 mod database;
 mod error;
 mod migrations;
+#[cfg(test)]
+mod options_tests;
 mod repository;
 #[cfg(test)]
 mod schema_tests;
@@ -17,4 +19,4 @@ pub use migrations::{
     BackupTarget, MIGRATIONS, MigrationOutcome, SHIPPED_CHECKSUMS, ShippedMigration, checksum,
     migrate, migrations,
 };
-pub use repository::SqliteSoundRepository;
+pub use repository::{SqliteSettingsRepository, SqliteSoundRepository};

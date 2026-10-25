@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use super::playback::{PlayMode, SoundGain};
+
 /// Why a value was rejected. Carries no user data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DomainError {
@@ -151,6 +153,9 @@ pub struct Sound {
     pub size_bytes: u64,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+    /// Editable playback options (schema 2).
+    pub gain: SoundGain,
+    pub play_mode: PlayMode,
 }
 
 const MAX_NAME_CHARS: usize = 255;
