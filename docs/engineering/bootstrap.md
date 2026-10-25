@@ -72,3 +72,9 @@ library. The schema is created by forward-only migrations in `src-tauri/migratio
 checksum entry in `SHIPPED_CHECKSUMS`, and a frozen fixture `src-tauri/tests/fixtures/sqlite/schema_vN.sql` (see ADR 0005).
 
 The release profile uses Rust's default `panic = "unwind"`.
+
+## Localization
+
+ScreamPad ships in English and Ukrainian (ADR 0008). Text lives in `src/shared/i18n/locales/{en,uk}.json`, is looked up by key, and
+errors map `AppError.kind` to `errors.<kind>`. `pnpm i18n:check` verifies catalog parity and `pnpm test:scripts` runs the
+dependency-free tests for it; both run in CI.

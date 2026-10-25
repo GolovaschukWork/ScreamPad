@@ -45,6 +45,8 @@ jobs:
         run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm i18n:check
+      - run: pnpm test:scripts
       - run: pnpm build
   native:
     name: native (${{ matrix.os }})

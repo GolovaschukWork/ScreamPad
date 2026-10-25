@@ -1,6 +1,6 @@
 # ADR 0008: Localization And Translatable Errors
 
-- Status: Proposed
+- Status: Accepted (owner approved on 2026-10-25: English and Ukrainian, Option A, application-layer sorting)
 - Date: 2026-10-25
 - Owner: TBD
 
@@ -30,9 +30,8 @@ Facts checked on 2026-10-25 against the current toolchain (TypeScript 6.0.3, Rea
   but we would own plural handling, fallback, typing, tooling and every future feature (rich text, context).
 
 ## Decision
-Not decided; owner approval needed (new dependency). **Recommendation: Option A**, because the typed-key, Ukrainian-plural and
-fallback behavior is already demonstrated, and ICU select/gender features are not needed for two languages and this UI. Option C is
-acceptable if the owner prefers zero dependencies; the rules below apply to either.
+**Option A: `i18next` 26.5.10 + `react-i18next` 17.1.8**, pinned exactly. Languages: **English** (source of truth, fallback and default
+when nothing matches) and **Ukrainian**. The rules below apply to every user-facing string.
 
 ### Rules (independent of the library)
 1. **Keys everywhere.** No user-facing string literal in components. Keys are namespaced by area (`library.*`, `errors.*`,
@@ -59,9 +58,21 @@ acceptable if the owner prefers zero dependencies; the rules below apply to eith
 10. **Adding a language** is a new catalog file plus its registration; the parity check enforces completeness.
 
 ### Catalog format
-Plain JSON per locale (`src/shared/i18n/locales/en.json`, `uk.json`) so translators and tools can edit them. The spike used TypeScript
-modules; typed keys from JSON imports must be confirmed in the implementation PR (key paths are inferred; values are widened to
-`string`).
+Plain JSON per locale (`src/shared/i18n/locales/en.json`, `uk.json`) so translators and tools can edit them. Verified in the
+implementation: typed keys are inferred from the JSON imports (an unknown key and an error kind without text both fail
+`tsc`). **Limits found:** the compiler checks keys only, not interpolation parameter names (that is `pnpm i18n:check`), and
+plural variants cannot be checked structurally across languages (also `pnpm i18n:check`).
+
+### Implementation notes (first integration)
+- `src/shared/i18n`: `resolveLanguage` (primary subtag match against `navigator.languages`), `initI18n` (synchronous start, sets
+  `<html lang>` and follows language changes), catalogs under `locales/`.
+- `src/shared/ipc/errors.ts` turns an `AppError` into text and fails to compile when a backend error kind lacks a catalog entry.
+  `errors.backendUnreachable` is a UI-only key for failures that are not typed backend errors.
+- `pnpm i18n:check` (parity, placeholders, plural forms, empty and unused keys) and `pnpm test:scripts` (Node's built-in test runner,
+  no dependency) run in the frontend CI job.
+- **Deferred:** a language switcher and its persistence (needs the `settings` migration), the pseudo-locale layout pass, and
+  Windows and macOS verification of system-language detection. Ukrainian texts were written by the assistant and need a native
+  review.
 
 ### Finding: case-insensitive search and ordering of non-ASCII names
 SQLite `COLLATE NOCASE` and `lower()` only fold ASCII. Checked with SQLite 3.51: `'Ж' = 'ж' COLLATE NOCASE` is false, `lower('Ж')`
@@ -82,4 +93,4 @@ migration.
 - The parity check script and a compile-time check of `AppError["kind"]` against the catalog (both runnable without a test runner).
 - Plural cases for Ukrainian (1, 2, 5, 11, 21, 22, 25, 101, 1.5) and English as automated cases once the UI test tooling is approved.
 - A pseudo-locale pass over every screen to catch truncation; keyboard and screen-reader labels checked in both languages.
-- Windows 11 and macOS system-language detection (`navigator.language` inside the webview) is NOT VERIFIED until tested on both.
+- Windows 11 and macOS system-language detection (`navigator.languages` inside the webview) is NOT VERIFIED until tested on both.

@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
-import { commands, type LibraryStats } from "../shared/ipc/bindings";
-import { describeError } from "../shared/ipc/messages";
+import { useTranslation } from "react-i18next";
+import { commands, type AppError, type LibraryStats } from "../shared/ipc/bindings";
+import { errorText } from "../shared/ipc/errors";
 
 type State =
   | { status: "loading" }
   | { status: "ready"; stats: LibraryStats }
-  | { status: "error"; message: string };
+  // `null` means the call itself failed (for example outside the desktop shell), not a typed backend error.
+  | { status: "error"; error: AppError | null };
 
 export default function App() {
+  const { t } = useTranslation();
   const [state, setState] = useState<State>({ status: "loading" });
 
   useEffect(() => {
@@ -19,14 +22,11 @@ export default function App() {
         setState(
           result.status === "ok"
             ? { status: "ready", stats: result.data }
-            : { status: "error", message: describeError(result.error) },
+            : { status: "error", error: result.error },
         );
       })
-      .catch((error: unknown) => {
-        // The call itself failed (for example outside the desktop shell), not a typed backend error.
-        if (!cancelled) {
-          setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
-        }
+      .catch(() => {
+        if (!cancelled) setState({ status: "error", error: null });
       });
     return () => {
       cancelled = true;
@@ -37,10 +37,10 @@ export default function App() {
     <main>
       <h1>ScreamPad</h1>
       <p role="status">
-        {state.status === "loading" && "Opening the library…"}
+        {state.status === "loading" && t("library.opening")}
         {state.status === "ready" &&
-          `Library ready: ${state.stats.soundCount} ${state.stats.soundCount === 1 ? "sound" : "sounds"} (schema ${state.stats.schemaVersion}).`}
-        {state.status === "error" && state.message}
+          t("library.ready", { count: state.stats.soundCount, schema: state.stats.schemaVersion })}
+        {state.status === "error" && (state.error ? errorText(t, state.error) : t("errors.backendUnreachable"))}
       </p>
     </main>
   );
