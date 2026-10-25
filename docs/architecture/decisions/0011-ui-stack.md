@@ -124,3 +124,15 @@ the provider reads it before the first render.
 - Verified: typecheck, build, 23 script tests (with mutation checks), and a temporary gallery in Chrome (Dark, Light, System,
   live switching, Select popup, slider, switch, keyboard focus ring). NOT VERIFIED: the real Tauri WebViews (WKWebView, WebView2).
   CI builds the frontend and the native targets, but does not render the WebView, so no CI screenshot exists.
+
+## Implementation notes (theme persistence, 2026-10-25)
+- Migration `0003_theme_setting.sql` adds `app_settings.theme` (`system|dark|light`, default `system`, CHECK). Frozen fixture
+  `schema_v3.sql`, `SHIPPED_CHECKSUMS` entry, upgrade tests 1 -> 3 and 2 -> 3 with the pre-upgrade backup.
+- `Theme` is a domain enum; `ThemeDto` is the typed IPC value. `get_settings` returns it and `update_settings` takes it; an
+  unknown value is refused by deserialization and never reaches the service. A stored value that does not parse is
+  `storageCorrupt`, like the other settings.
+- Startup: `main.tsx` reads the settings once before the first render, applies the language and passes the theme to
+  `ThemeProvider`. Until then nothing is rendered and CSS already follows the system scheme. If the read fails, `system` stays.
+- Saving a setting updates the database first; the provider then mirrors the stored value. `localStorage` is not used.
+- A native `<select>` was added to the existing settings panel for the theme (the panel itself is not restyled).
+- NOT VERIFIED: the first frame in the real Tauri windows when the stored theme differs from the system one.

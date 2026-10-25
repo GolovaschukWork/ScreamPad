@@ -30,8 +30,8 @@ export const commands = {
 	retryAudio: () => typedError<null, AppError>(__TAURI_INVOKE("retry_audio")),
 	/**  Reads the stored settings. A damaged settings row is reported as `storageCorrupt`, never replaced by defaults. */
 	getSettings: () => typedError<SettingsDto, AppError>(__TAURI_INVOKE("get_settings")),
-	/**  Stores the language and the master volume, and applies the volume to the audio output. */
-	updateSettings: (language: string, masterGainMillibels: number) => typedError<SettingsDto, AppError>(__TAURI_INVOKE("update_settings", { language, masterGainMillibels })),
+	/**  Stores the language, the master volume and the theme, and applies the volume to the audio output. */
+	updateSettings: (language: string, masterGainMillibels: number, theme: ThemeDto) => typedError<SettingsDto, AppError>(__TAURI_INVOKE("update_settings", { language, masterGainMillibels, theme })),
 	/**  Stores a sound's gain trim and play mode. */
 	setSoundOptions: (id: number, gainMillibels: number, playMode: PlayModeDto) => typedError<SoundSummary, AppError>(__TAURI_INVOKE("set_sound_options", { id, gainMillibels, playMode })),
 };
@@ -108,6 +108,7 @@ export type SettingsDto = {
 	language: string,
 	/**  Master volume in millibels (1/100 dB), -6000..=0. */
 	masterGainMillibels: number,
+	theme: ThemeDto,
 };
 
 /**  Whether a sound's managed file can be used, as of the last reconciliation. */
@@ -129,6 +130,9 @@ export type SoundSummary = {
 	gainMillibels: number,
 	playMode: PlayModeDto,
 };
+
+/**  The interface theme. */
+export type ThemeDto = "system" | "dark" | "light";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

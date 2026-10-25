@@ -85,11 +85,11 @@ fn rejected(row: &Row, why: &str) {
 fn the_migrations_create_the_schema_on_an_empty_database() {
     let (_dir, db) = fresh();
     assert_eq!(db.migration_outcome().from, 0);
-    assert_eq!(db.migration_outcome().to, 2);
+    assert_eq!(db.migration_outcome().to, 3);
     assert!(db.migration_outcome().backup.is_none());
     db.with_writer(|c| {
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
         for (kind, name) in [
             ("table", "sounds"),
             ("table", "app_settings"),
@@ -129,7 +129,7 @@ fn running_the_migrations_again_changes_nothing() {
             second.migration_outcome().from,
             second.migration_outcome().to
         ),
-        (2, 2)
+        (3, 3)
     );
     assert!(second.migration_outcome().backup.is_none());
     let count: i64 = second
@@ -427,7 +427,7 @@ fn a_failing_later_migration_leaves_the_previous_schema_intact() {
         .expect("rows");
     assert_eq!(
         (version, partial, rows),
-        (2, 0, 1),
+        (3, 0, 1),
         "version, partial schema, data"
     );
 }
@@ -443,6 +443,10 @@ const FIXTURES: &[(usize, &str)] = &[
     (
         2,
         include_str!("../../../tests/fixtures/sqlite/schema_v2.sql"),
+    ),
+    (
+        3,
+        include_str!("../../../tests/fixtures/sqlite/schema_v3.sql"),
     ),
 ];
 
@@ -643,7 +647,7 @@ fn upgrading_from_schema_one_keeps_rows_and_applies_defaults() {
     let db = Database::open(&path, &migrations()).expect("upgrade");
     assert_eq!(
         (db.migration_outcome().from, db.migration_outcome().to),
-        (1, 2)
+        (1, 3)
     );
     assert!(
         db.migration_outcome().backup.is_some(),
@@ -666,4 +670,57 @@ fn upgrading_from_schema_one_keeps_rows_and_applies_defaults() {
         Ok(())
     })
     .expect("upgraded data");
+}
+
+// --- schema 3: theme ---------------------------------------------------------------------------------------------------
+
+#[test]
+fn the_theme_defaults_to_system_and_accepts_only_the_three_values() {
+    let (_dir, db) = fresh();
+    db.with_writer(|c| {
+        let theme: String = c.query_row("SELECT theme FROM app_settings", [], |r| r.get(0))?;
+        assert_eq!(theme, "system");
+        for ok in ["dark", "light", "system"] {
+            c.execute("UPDATE app_settings SET theme = ?1", [ok])?;
+        }
+        for bad in ["''", "'Dark'", "'auto'", "'dark '", "NULL", "1"] {
+            expect_rejected(c, &format!("UPDATE app_settings SET theme = {bad}"));
+        }
+        Ok(())
+    })
+    .expect("theme");
+}
+
+#[test]
+fn upgrading_from_schema_two_keeps_the_settings_and_defaults_the_theme() {
+    let dir = TempDir::new();
+    let path = dir.file("library.db");
+    {
+        let old = Connection::open(&path).expect("create old database");
+        old.execute_batch(include_str!("../../../tests/fixtures/sqlite/schema_v2.sql"))
+            .expect("load fixture");
+        old.pragma_update(None, "user_version", 2).expect("version");
+    }
+    let db = Database::open(&path, &migrations()).expect("upgrade");
+    assert_eq!(
+        (db.migration_outcome().from, db.migration_outcome().to),
+        (2, 3)
+    );
+    assert!(
+        db.migration_outcome().backup.is_some(),
+        "an upgrade is backed up first"
+    );
+    db.with_writer(|c| {
+        let (language, gain, theme): (String, i64, String) = c.query_row(
+            "SELECT language, master_gain_millibels, theme FROM app_settings",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        assert_eq!(
+            (language.as_str(), gain, theme.as_str()),
+            ("uk", -300, "system")
+        );
+        Ok(())
+    })
+    .expect("upgraded settings");
 }

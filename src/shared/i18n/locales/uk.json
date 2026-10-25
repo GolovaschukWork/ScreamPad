@@ -81,6 +81,10 @@
     "languageEn": "English",
     "languageUk": "Українська",
     "masterVolume": "Загальна гучність",
-    "loading": "Завантаження налаштувань…"
+    "loading": "Завантаження налаштувань…",
+    "theme": "Тема",
+    "themeSystem": "Як у системі",
+    "themeDark": "Темна",
+    "themeLight": "Світла"
   }
 }

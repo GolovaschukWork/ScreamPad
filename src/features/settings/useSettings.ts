@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyLanguage } from "../../shared/i18n";
-import { commands, type AppError, type SettingsDto } from "../../shared/ipc/bindings";
+import { commands, type AppError, type SettingsDto, type ThemeDto } from "../../shared/ipc/bindings";
+import { useTheme } from "../../shared/theme/ThemeProvider";
 
 export type SettingsState =
   | { status: "loading" }
@@ -13,6 +14,7 @@ export function useSettings() {
   // The last failed save; the stored settings stay on screen.
   const [problem, setProblem] = useState<AppError | null | undefined>(undefined);
   const mounted = useRef(true);
+  const { setTheme } = useTheme();
 
   useEffect(() => {
     mounted.current = true;
@@ -30,21 +32,23 @@ export function useSettings() {
     };
   }, []);
 
-  const save = useCallback(async (language: string, masterGainMillibels: number) => {
+  const save = useCallback(async (language: string, masterGainMillibels: number, theme: ThemeDto) => {
     setProblem(undefined);
     try {
-      const result = await commands.updateSettings(language, masterGainMillibels);
+      const result = await commands.updateSettings(language, masterGainMillibels, theme);
       if (!mounted.current) return;
       if (result.status === "error") {
         setProblem(result.error);
         return;
       }
       setState({ status: "ready", settings: result.data });
+      // The stored value is the truth: the provider only mirrors it.
+      setTheme(result.data.theme);
       await applyLanguage(result.data.language);
     } catch {
       if (mounted.current) setProblem(null);
     }
-  }, []);
+  }, [setTheme]);
 
   return { state, problem, save };
 }

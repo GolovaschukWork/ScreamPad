@@ -1,4 +1,4 @@
-//! Application settings (schema 2, table `app_settings`).
+//! Application settings (table `app_settings`: schema 2, theme added in schema 3).
 
 use std::fmt;
 
@@ -47,10 +47,37 @@ impl Language {
     }
 }
 
+/// The interface theme. `System` follows the operating system. Stored as text in `app_settings.theme`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Theme {
+    #[default]
+    System,
+    Dark,
+    Light,
+}
+
+impl Theme {
+    pub const ALL: [Self; 3] = [Self::System, Self::Dark, Self::Light];
+
+    /// The value stored in the database.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Dark => "dark",
+            Self::Light => "light",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|theme| theme.as_str() == value)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Settings {
     pub language: Language,
     pub master_gain: MasterGain,
+    pub theme: Theme,
     pub updated_at_ms: i64,
 }
 
@@ -75,6 +102,17 @@ mod tests {
         ] {
             assert_eq!(Language::parse(bad), Err(UnsupportedLanguage), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn themes_round_trip_and_unknown_values_are_refused() {
+        for theme in Theme::ALL {
+            assert_eq!(Theme::parse(theme.as_str()), Some(theme));
+        }
+        for bad in ["", "Dark", "auto", "dark ", "system\0"] {
+            assert_eq!(Theme::parse(bad), None, "{bad:?}");
+        }
+        assert_eq!(Theme::default(), Theme::System);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use rusqlite::{Connection, params};
 use super::{Database, SqliteSettingsRepository, SqliteSoundRepository, StorageError, migrations};
 use crate::application::ports::{InsertOutcome, SettingsRepository, SoundRepository};
 use crate::domain::playback::{MasterGain, PlayMode, SoundGain};
-use crate::domain::settings::Language;
+use crate::domain::settings::{Language, Theme};
 use crate::domain::sound::{AudioFormat, ContentHash, NewSound, StorageKey};
 use crate::test_support::TempDir;
 
@@ -125,6 +125,7 @@ fn settings_start_with_the_defaults() {
         .expect("get");
     assert_eq!(settings.language, Language::System);
     assert_eq!(settings.master_gain, MasterGain::UNITY);
+    assert_eq!(settings.theme, Theme::System);
 }
 
 #[test]
@@ -136,6 +137,7 @@ fn settings_persist_across_restarts() {
             .save(
                 Language::parse("uk").expect("language"),
                 master(-1200),
+                Theme::Light,
                 9_000,
             )
             .expect("save");
@@ -155,6 +157,7 @@ fn settings_persist_across_restarts() {
         (settings.language, settings.master_gain.millibels()),
         (Language::Tag("uk"), -1200)
     );
+    assert_eq!(settings.theme, Theme::Light);
 }
 
 fn delete_settings_row(dir: &TempDir) {
@@ -172,7 +175,7 @@ fn a_missing_settings_row_is_an_integrity_error_and_is_not_recreated() {
     let repository = SqliteSettingsRepository::new(open(&dir));
     assert_eq!(repository.get(), Err(StorageError::Corrupt));
     assert_eq!(
-        repository.save(Language::System, MasterGain::UNITY, 1),
+        repository.save(Language::System, MasterGain::UNITY, Theme::System, 1),
         Err(StorageError::Corrupt)
     );
     let rows: i64 = Connection::open(dir.file("library.db"))
