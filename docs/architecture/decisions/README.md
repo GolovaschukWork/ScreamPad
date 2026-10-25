@@ -10,6 +10,7 @@ Accepted decisions:
 - 0007 Managed library import: atomicity, cleanup and recovery (accepted with conditions)
 - 0008 Localization and translatable errors (English and Ukrainian, i18next)
 - 0009 Backend-owned file selection (native dialog opened from Rust)
+- 0010 Application settings and per-sound playback options (schema 2)
 
 Proposed (awaiting owner decision): none.
 
