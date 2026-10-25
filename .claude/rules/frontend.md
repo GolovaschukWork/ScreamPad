@@ -13,3 +13,4 @@ paths:
 - Apply responsive desktop layouts for narrow windows and high-DPI displays.
 - Prefer testable pure functions and isolated components over feature-wide state coupling.
 - No user-facing string literals in components: use translation keys with both English and Ukrainian entries; backend errors map `AppError.kind` to `errors.<kind>` (ADR 0008).
+- Styling follows ADR 0011: Tailwind semantic utilities backed by the tokens in `src/app/index.css`; no raw colors elsewhere (`pnpm test:scripts` enforces it). shadcn primitives live in `src/shared/ui` and are added one at a time; do not add the `shadcn` package or a second component library.

@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./app/App";
+import "./app/index.css";
+import { ThemeProvider } from "./shared/theme/ThemeProvider";
 import { applyLanguage, initI18n } from "./shared/i18n";
 import { commands } from "./shared/ipc/bindings";
 
@@ -20,7 +22,9 @@ async function applyStoredLanguage(): Promise<void> {
 void applyStoredLanguage().then(() => {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <App />
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
     </React.StrictMode>,
   );
 });

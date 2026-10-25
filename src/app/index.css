@@ -1,0 +1,120 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* The single source of truth for colors, typography, spacing scale and radius (ADR 0011).
+   Components use the semantic utilities below (bg-background, text-muted-foreground, ...) and never raw colors.
+   Dark is the design's primary theme; the ThemeProvider always puts `dark` or `light` on <html>. */
+@custom-variant dark (&:is(.dark, .dark *));
+/* Base UI reports orientation as data-orientation; the generated components style data-horizontal and data-vertical. */
+@custom-variant data-horizontal (&:where([data-orientation="horizontal"]));
+@custom-variant data-vertical (&:where([data-orientation="vertical"]));
+
+:root {
+  /* Light */
+  --background: #f5f6f8;
+  --foreground: #15171c;
+  --card: #ffffff;
+  --card-foreground: #15171c;
+  --popover: #ffffff;
+  --popover-foreground: #15171c;
+  --primary: #5338d6;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0f4;
+  --secondary-foreground: #15171c;
+  --muted: #eef0f4;
+  --muted-foreground: #4b5262;
+  --accent: #e3e6ed;
+  --accent-foreground: #15171c;
+  --destructive: #b42318;
+  --border: #c9cfd9;
+  --input: #c9cfd9;
+  --ring: #1a56db;
+  --radius: 0.625rem;
+  color-scheme: light;
+}
+
+:root.dark {
+  --background: #0f1115;
+  --foreground: #eceef3;
+  --card: #181b21;
+  --card-foreground: #eceef3;
+  --popover: #181b21;
+  --popover-foreground: #eceef3;
+  --primary: #a493ff;
+  --primary-foreground: #11101c;
+  --secondary: #232730;
+  --secondary-foreground: #eceef3;
+  --muted: #232730;
+  --muted-foreground: #aab1c0;
+  --accent: #2c313c;
+  --accent-foreground: #eceef3;
+  --destructive: #ff8f84;
+  --border: #3a404d;
+  --input: #3a404d;
+  --ring: #8ab4ff;
+  color-scheme: dark;
+}
+
+/* The frame before JavaScript runs: follow the system scheme with CSS alone, so the window never flashes the wrong
+   background. Once the ThemeProvider has set a class, the rules above take over. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light):not(.dark) {
+    --background: #0f1115;
+    --foreground: #eceef3;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+
+  /* Visible keyboard focus on every control, including plain elements that have no component styles. */
+  :focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
