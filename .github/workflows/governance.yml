@@ -9,14 +9,30 @@ jobs:
   policy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Validate governance files and JSON
         run: |
           python3 -m json.tool .claude/settings.json > /dev/null
-          python3 -m py_compile .claude/hooks/guard_bash.py
           test -f CLAUDE.md
           test -f docs/engineering/release-policy.md
           test -f docs/engineering/definition-of-done.md
+      - name: Run guard hook tests
+        run: python3 -B -m unittest discover -s .claude/hooks
+      - name: Check repository hygiene
+        run: |
+          if git ls-files | grep -E '(^|/)(\.DS_Store|settings\.local\.json)$'; then
+            echo "Local or OS files must not be tracked" >&2
+            exit 1
+          fi
+          grep -q '^disable-model-invocation: true$' .claude/skills/release/SKILL.md
+          for agent in architect reviewer; do
+            if grep -E '^tools:.*\b(Bash|Write|Edit|NotebookEdit)\b' ".claude/agents/$agent.md"; then
+              echo "$agent must stay read-only" >&2
+              exit 1
+            fi
+          done
       - name: Check no product identity/license assumptions
         run: |
           grep -q 'Product name: TBD' CLAUDE.md

@@ -8,11 +8,23 @@ permissions:
   security-events: write
 jobs:
   analyze:
-    if: ${{ hashFiles('src/**/*.ts', 'src/**/*.tsx') != '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # hashFiles() is not allowed in job-level conditions, so gate the steps instead.
+      - name: Detect TypeScript sources
+        id: sources
+        run: |
+          if [ -n "$(git ls-files 'src/*.ts' 'src/*.tsx')" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No TypeScript sources yet; skipping CodeQL analysis."
+          fi
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: steps.sources.outputs.present == 'true'
         with:
           languages: javascript-typescript
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: steps.sources.outputs.present == 'true'

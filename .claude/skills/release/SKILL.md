@@ -1,8 +1,11 @@
 ---
 name: release
 description: Prepare a release candidate; never publish without explicit approval.
+disable-model-invocation: true
 ---
 # /release
+Manual only: run it by typing `/release`; Claude does not start it on its own.
+
 1. Verify version, target channel, changelog, tag convention, and Git status.
 2. Verify CI, real OS smoke tests, signing/notarization and updater signatures.
 3. Require license and bundled FFmpeg compliance audit, provenance, SBOM, checksums, and rollback plan.
