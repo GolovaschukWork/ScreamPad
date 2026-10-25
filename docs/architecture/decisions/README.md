@@ -9,5 +9,6 @@ Accepted product decisions from discovery:
 
 Proposed (awaiting owner decision):
 - 0006 Audio engine threading, buffering, callback safety and device lifecycle
+- 0007 Managed library import: atomicity, cleanup and recovery
 
 Future ADRs required for: URL providers, FFmpeg distribution, non-destructive edit schema, license and signing provider.
