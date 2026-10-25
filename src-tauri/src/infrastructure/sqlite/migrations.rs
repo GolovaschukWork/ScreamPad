@@ -16,11 +16,14 @@ pub struct ShippedMigration {
 }
 
 /// Every migration that has been released, in order. Adding one needs owner approval (schema change).
-pub const MIGRATIONS: &[ShippedMigration] = &[];
+pub const MIGRATIONS: &[ShippedMigration] = &[ShippedMigration {
+    name: "0001_create_sounds",
+    sql: include_str!("../../../migrations/0001_create_sounds.sql"),
+}];
 
 /// FNV-1a checksums recorded when each migration shipped, same order as `MIGRATIONS`.
 /// The library stores no checksums, so editing a released migration is caught by the tests instead.
-pub const SHIPPED_CHECKSUMS: &[(&str, u64)] = &[];
+pub const SHIPPED_CHECKSUMS: &[(&str, u64)] = &[("0001_create_sounds", 0x6f9d724e549f738c)];
 
 /// Non-cryptographic checksum, enough to detect an accidental edit without adding a dependency.
 pub fn checksum(sql: &str) -> u64 {

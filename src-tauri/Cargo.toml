@@ -22,6 +22,8 @@ tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
 # ADR 0005. rusqlite_migration 2.6.0 requires rusqlite ^0.40, so 0.41 is not used yet.
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 rusqlite_migration = "=2.6.0"
+# SHA-256 for content hashes (RustCrypto, MIT OR Apache-2.0, MSRV 1.88).
+sha2 = "=0.11.1"
 
 [dev-dependencies]
 serde_json = "1"
@@ -31,5 +33,4 @@ tauri = { version = "2", features = ["test"] }
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
 strip = true
