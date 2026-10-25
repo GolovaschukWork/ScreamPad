@@ -17,10 +17,11 @@ use tauri::webview::InvokeRequest;
 use soundboard_desktop_lib::application::cancel::CancelToken;
 use soundboard_desktop_lib::application::error::StorageError;
 use soundboard_desktop_lib::application::import::{ImportError, ImportOutcome};
+use soundboard_desktop_lib::application::ports::FilePicker;
 use soundboard_desktop_lib::commands::error::AppError;
 use soundboard_desktop_lib::infrastructure::sqlite::{Database, migrations};
 use soundboard_desktop_lib::ipc::builder;
-use soundboard_desktop_lib::state::StorageState;
+use soundboard_desktop_lib::state::{PickerState, StorageState};
 
 /// Regenerates `src/shared/ipc/bindings.ts`. CI fails when the committed file differs from the generated one.
 #[test]
@@ -39,9 +40,21 @@ const LOCAL_ORIGIN: &str = "tauri://localhost";
 
 /// Sends a command through Tauri's IPC layer on the mock runtime, as the webview would.
 fn invoke(cmd: &str, storage: Option<StorageState>) -> Result<Value, Value> {
+    invoke_with(cmd, storage, None)
+}
+
+/// Same, with a file picker that answers without opening a dialog.
+fn invoke_with(
+    cmd: &str,
+    storage: Option<StorageState>,
+    picker: Option<PickerState>,
+) -> Result<Value, Value> {
     let mut builder_app = mock_builder().invoke_handler(builder::<MockRuntime>().invoke_handler());
     if let Some(storage) = storage {
         builder_app = builder_app.manage(storage);
+    }
+    if let Some(picker) = picker {
+        builder_app = builder_app.manage(picker);
     }
     let app = builder_app
         .build(mock_context(noop_assets()))
@@ -62,6 +75,19 @@ fn invoke(cmd: &str, storage: Option<StorageState>) -> Result<Value, Value> {
         },
     )
     .map(|body| body.deserialize().expect("response is JSON"))
+}
+
+/// A picker that returns a fixed answer, like a user who always chooses (or cancels) the same thing.
+struct FixedPicker(Option<std::path::PathBuf>);
+
+impl FilePicker for FixedPicker {
+    fn pick_audio_file(&self) -> Option<std::path::PathBuf> {
+        self.0.clone()
+    }
+}
+
+fn picker(path: Option<std::path::PathBuf>) -> Option<PickerState> {
+    Some(PickerState(Arc::new(FixedPicker(path))))
 }
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
@@ -329,5 +355,127 @@ fn every_import_failure_maps_to_a_typed_error_without_details() {
             json!({ "kind": kind }),
             "{error:?}"
         );
+    }
+}
+
+fn empty_library(name: &str) -> (std::path::PathBuf, StorageState) {
+    let dir = temp_dir(name);
+    let database = Database::open(&dir.join("library.db"), &migrations()).expect("open");
+    (
+        dir.clone(),
+        StorageState::ready(Arc::new(database), &dir.join("library")),
+    )
+}
+
+#[test]
+fn import_sound_imports_the_chosen_file_and_reports_a_repeat_as_already_in_the_library() {
+    let (dir, state) = empty_library("import");
+    let library = state.library().expect("ready");
+
+    let first = invoke_with(
+        "import_sound",
+        Some(StorageState::Ready(Arc::clone(&library))),
+        picker(Some(fixture("tone.wav"))),
+    )
+    .expect("import failed");
+    assert_eq!(first["alreadyInLibrary"], false);
+    assert_eq!(first["sound"]["displayName"], "tone");
+    assert_eq!(first["sound"]["format"], "wav");
+    assert_eq!(first["sound"]["status"], "available");
+
+    let again = invoke_with(
+        "import_sound",
+        Some(StorageState::Ready(Arc::clone(&library))),
+        picker(Some(fixture("tone.wav"))),
+    )
+    .expect("repeat failed");
+    assert_eq!(again["alreadyInLibrary"], true);
+    assert_eq!(again["sound"]["id"], first["sound"]["id"]);
+
+    let listed = invoke("list_sounds", Some(StorageState::Ready(library))).expect("list");
+    assert_eq!(listed.as_array().expect("array").len(), 1);
+    let text = first.to_string();
+    for leak in ["/", "\\", "fixtures", "contentHash", "managedPath"] {
+        assert!(
+            !text.contains(leak),
+            "the result must not expose {leak}: {text}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn cancelling_the_dialog_imports_nothing() {
+    let (dir, state) = empty_library("cancel");
+    let library = state.library().expect("ready");
+    let result = invoke_with(
+        "import_sound",
+        Some(StorageState::Ready(Arc::clone(&library))),
+        picker(None),
+    )
+    .expect("command");
+    assert_eq!(result, Value::Null);
+    let listed = invoke("list_sounds", Some(StorageState::Ready(library))).expect("list");
+    assert!(listed.as_array().expect("array").is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_unusable_file_is_reported_as_a_typed_error_and_nothing_is_added() {
+    let (dir, state) = empty_library("unusable");
+    let library = state.library().expect("ready");
+    for (name, kind) in [
+        ("garbage.bin", "importUnsupportedFormat"),
+        ("not_audio.wav", "importUnsupportedFormat"),
+        ("video_with_audio.mp4", "importUnsupportedFormat"),
+    ] {
+        let error = invoke_with(
+            "import_sound",
+            Some(StorageState::Ready(Arc::clone(&library))),
+            picker(Some(fixture(name))),
+        )
+        .expect_err("must fail");
+        assert_eq!(error, json!({ "kind": kind }), "{name}");
+    }
+    let missing = dir.join("does-not-exist.wav");
+    let error = invoke_with(
+        "import_sound",
+        Some(StorageState::Ready(Arc::clone(&library))),
+        picker(Some(missing)),
+    )
+    .expect_err("must fail");
+    assert_eq!(error, json!({ "kind": "importSourceUnreadable" }));
+    let listed = invoke("list_sounds", Some(StorageState::Ready(library))).expect("list");
+    assert!(listed.as_array().expect("array").is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn import_sound_fails_cleanly_when_the_library_is_unavailable() {
+    let error = invoke_with(
+        "import_sound",
+        Some(StorageState::Unavailable(AppError::StorageCorrupt)),
+        picker(Some(fixture("tone.wav"))),
+    )
+    .expect_err("must fail");
+    assert_eq!(error, json!({ "kind": "storageCorrupt" }));
+}
+
+/// The window must not be able to open the dialog itself or touch the file system through a plugin: only the backend picks files.
+#[test]
+fn the_window_capability_grants_no_dialog_or_file_system_permission() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/capabilities");
+    for entry in std::fs::read_dir(path).expect("capabilities directory") {
+        let file = entry.expect("entry").path();
+        let text = std::fs::read_to_string(&file).expect("capability file");
+        let json: Value = serde_json::from_str(&text).expect("valid JSON");
+        let permissions = json["permissions"].as_array().expect("permissions array");
+        for permission in permissions {
+            let name = permission.as_str().unwrap_or_default();
+            assert!(
+                !name.starts_with("dialog:") && !name.starts_with("fs:"),
+                "{file:?} grants {name}"
+            );
+        }
     }
 }

@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use crate::application::active::ActiveImports;
 use crate::application::error::StorageError;
 use crate::application::import::{ImportLimits, ImportService};
+use crate::application::ports::FilePicker;
 use crate::application::reconcile::{ORPHAN_GRACE, ReconcileReport, reconcile};
 use crate::commands::error::AppError;
 use crate::infrastructure::media::fs::OsMediaFs;
@@ -134,3 +135,6 @@ impl StorageState {
         self.library().map(|library| Arc::clone(&library.database))
     }
 }
+
+/// How the user chooses a file to import. Production uses the native dialog; tests use a fixed answer.
+pub struct PickerState(pub Arc<dyn FilePicker>);

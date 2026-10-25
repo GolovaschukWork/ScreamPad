@@ -2,7 +2,7 @@
 
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use super::cancel::CancelToken;
@@ -133,4 +133,10 @@ pub trait SoundRepository: Send + Sync {
 
 pub trait Clock: Send + Sync {
     fn now_ms(&self) -> i64;
+}
+
+/// Lets the user choose one audio file. Implemented by the native dialog; the webview never supplies a path.
+pub trait FilePicker: Send + Sync {
+    /// Blocks until the user chooses a file or cancels (`None`). Call it from a blocking task.
+    fn pick_audio_file(&self) -> Option<PathBuf>;
 }

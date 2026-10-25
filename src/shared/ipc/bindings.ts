@@ -12,6 +12,11 @@ export const commands = {
 	listSounds: () => typedError<SoundSummary[], AppError>(__TAURI_INVOKE("list_sounds")),
 	/**  Checks that a sound's managed file is usable: `mediaMissing` or `mediaCorrupt` otherwise. The database row is never changed. */
 	checkSoundMedia: (id: number) => typedError<null, AppError>(__TAURI_INVOKE("check_sound_media", { id })),
+	/**
+	 *  Asks the user for an audio file with a native dialog opened by the backend, then imports it. `None` means the user
+	 *  cancelled the dialog. The webview never supplies a path, so it cannot make the app read an arbitrary file.
+	 */
+	importSound: () => typedError<ImportResult | null, AppError>(__TAURI_INVOKE("import_sound")),
 };
 
 /* Types */
@@ -29,6 +34,13 @@ export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kin
 export type AppInfo = {
 	name: string,
 	version: string,
+};
+
+/**  Result of a completed import. */
+export type ImportResult = {
+	sound: SoundSummary,
+	/**  The same bytes were already in the library, so nothing was added. */
+	alreadyInLibrary: boolean,
 };
 
 /**  Summary of the sound library. */

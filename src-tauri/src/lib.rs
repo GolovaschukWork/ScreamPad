@@ -11,10 +11,12 @@ mod test_support;
 use tauri::Manager;
 
 use commands::error::AppError;
-use state::StorageState;
+use infrastructure::dialog::TauriFilePicker;
+use state::{PickerState, StorageState};
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(ipc::builder::<tauri::Wry>().invoke_handler())
         .setup(|app| {
             let storage = match app.path().app_data_dir() {
@@ -23,6 +25,9 @@ pub fn run() {
             };
             let library = storage.library().ok();
             app.manage(storage);
+            app.manage(PickerState(std::sync::Arc::new(TauriFilePicker::new(
+                app.handle().clone(),
+            ))));
             if let Some(library) = library {
                 // Cleanup after interrupted imports runs in the background and never delays the window.
                 tauri::async_runtime::spawn_blocking(move || {

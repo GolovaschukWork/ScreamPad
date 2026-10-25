@@ -144,8 +144,9 @@ fn a_file_with_a_different_size_than_recorded_is_reported() {
     #[allow(clippy::permissions_set_readonly_false)]
     writable.set_readonly(false);
     fs::set_permissions(&path, writable).expect("permissions");
+    // Changing the length needs write access; on Windows an append-only handle is refused.
     fs::OpenOptions::new()
-        .append(true)
+        .write(true)
         .open(&path)
         .expect("open")
         .set_len(10)
