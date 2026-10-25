@@ -75,7 +75,6 @@
     "playbackDecodeTimeout": "Підготовка цього звуку тривала надто довго."
   },
   "settings": {
-    "title": "Налаштування",
     "language": "Мова",
     "languageSystem": "Як у системі",
     "languageEn": "English",
@@ -85,6 +84,22 @@
     "theme": "Тема",
     "themeSystem": "Як у системі",
     "themeDark": "Темна",
-    "themeLight": "Світла"
+    "themeLight": "Світла",
+    "general": "Загальні",
+    "appearance": "Вигляд",
+    "audio": "Звук",
+    "about": "Про застосунок",
+    "themeHint": "Застосовується одразу й запам’ятовується.",
+    "masterVolumeHint": "Діє на всі звуки.",
+    "appName": "Застосунок",
+    "version": "Версія",
+    "versionUnknown": "Недоступно",
+    "license": "Ліцензія",
+    "licensePending": "Відкритий код, ліцензію буде оголошено"
+  },
+  "nav": {
+    "label": "Головна навігація",
+    "library": "Бібліотека",
+    "settings": "Налаштування"
   }
 }

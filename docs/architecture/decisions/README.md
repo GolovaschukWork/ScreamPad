@@ -12,6 +12,7 @@ Accepted decisions:
 - 0009 Backend-owned file selection (native dialog opened from Rust)
 - 0010 Application settings and per-sound playback options (schema 2)
 - 0011 UI stack (Tailwind v4, shadcn/ui on Base UI, Lucide, Sonner)
+- 0012 Frontend component tests (Vitest) and in-app navigation without a router
 
 Proposed (awaiting owner decision): none.
 

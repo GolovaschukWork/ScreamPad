@@ -32,21 +32,25 @@ export function useSettings() {
     };
   }, []);
 
-  const save = useCallback(async (language: string, masterGainMillibels: number, theme: ThemeDto) => {
+  /** Stores the settings. Resolves to `true` once they are stored and applied, `false` when the save failed (the error is
+   *  in `problem` and the previous settings stay on screen). */
+  const save = useCallback(async (language: string, masterGainMillibels: number, theme: ThemeDto): Promise<boolean> => {
     setProblem(undefined);
     try {
       const result = await commands.updateSettings(language, masterGainMillibels, theme);
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       if (result.status === "error") {
         setProblem(result.error);
-        return;
+        return false;
       }
       setState({ status: "ready", settings: result.data });
       // The stored value is the truth: the provider only mirrors it.
       setTheme(result.data.theme);
       await applyLanguage(result.data.language);
+      return true;
     } catch {
       if (mounted.current) setProblem(null);
+      return false;
     }
   }, [setTheme]);
 

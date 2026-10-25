@@ -10,7 +10,7 @@ match() {
 }
 
 # TypeScript app and its build inputs.
-echo "frontend=$(match '^(src/|scripts/|index\.html$|package\.json$|pnpm-lock\.yaml$|tsconfig[^/]*\.json$|vite\.config\.ts$|\.nvmrc$|\.npmrc$|\.github/workflows/ci\.yml$|\.github/scripts/)')"
+echo "frontend=$(match '^(src/|scripts/|index\.html$|package\.json$|pnpm-lock\.yaml$|tsconfig[^/]*\.json$|vite\.config\.ts$|vitest\.config\.ts$|components\.json$|\.nvmrc$|\.npmrc$|\.github/workflows/ci\.yml$|\.github/scripts/)')"
 # Rust app and toolchain. Frontend-only edits do not need the three-OS native matrix.
 echo "native=$(match '^(src-tauri/|src/shared/ipc/|rust-toolchain\.toml$|package\.json$|pnpm-lock\.yaml$|\.nvmrc$|\.github/workflows/ci\.yml$|\.github/scripts/)')"
 # CodeQL analyzes TypeScript sources and their dependencies.
