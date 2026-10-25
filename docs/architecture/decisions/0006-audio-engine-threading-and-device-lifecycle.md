@@ -1,6 +1,6 @@
 # ADR 0006: Audio Engine Threading, Buffering, Callback Safety And Device Lifecycle
 
-- Status: Proposed
+- Status: Accepted (owner decisions of 2026-10-25: `cpal`, `rtrb 0.4.0`, `rubato 5.0.1`, `panic = unwind`); mixer and clip decoding implemented, device engine pending
 - Date: 2026-10-25
 - Owner: TBD
 
@@ -120,12 +120,32 @@ States: `Closed → Opening → Running → Recovering → Running | Failed`.
 - Behavior after unplugging or switching devices differs per OS and `cpal` version, so the lifecycle code needs real-device
   verification on Windows 11 and macOS before it can be called reliable.
 
+## Implementation notes (mixer and clip decoding, 2026-10-25)
+Implemented in `src-tauri/src/audio` and `infrastructure/media/decode.rs`; the `cpal` stream, the device state machine and the
+IPC commands are the next step.
+
+- **Dependencies (owner-approved, exact pins):** `rtrb =0.4.0` for the wait-free queues, `rubato =5.0.1` for resampling
+  (`Fft` resampler with `process_all`, which trims the filter delay). Both are `MIT OR Apache-2.0`.
+- **Mixer:** 32 voices in a fixed array; three bounded queues (commands 256, events 256, retired clips 128). `render` sums the
+  voices, applies the master gain once, and clamps; NaN and infinite values become silence. A finished voice hands its
+  `Arc<Clip>` to the retired queue and the control thread frees it. If the control thread stops draining, ended voices keep their
+  slot, and a rejected clip that has nowhere to go is leaked and counted (`leaked_clips`) instead of being freed in the callback.
+- **Decoding:** a clip is decoded at the file's channel count, resampled to the device rate, then fitted to the device channel
+  count (mono is copied, several channels are averaged into mono, surround keeps only its front pair). The clip length limit is a
+  caller-supplied cap, about 23 MB per minute of stereo at 48 kHz.
+- **Known limitations:** `symphonia` does not trim the encoder delay of MP4/AAC (its table lists gapless as unsupported for
+  ISO/MP4), so an AAC clip starts with silence of roughly 1000 source frames; this must be trimmed before AAC counts as an
+  instant-trigger sound. Surround downmix is not implemented. Stopping a voice cuts it abruptly (no fade), which can click.
+- **Evidence:** 23 mixer tests with deterministic input; `tests/audio_realtime.rs` installs a counting global allocator and
+  asserts **zero allocations and zero deallocations** inside `render` over 600 rounds that include rejections, stops and clips
+  whose only owner is the voice. It was mutation-checked: allocating inside `render`, or dropping a clip there, makes it fail.
+
 ## Risks and decisions for the owner
 1. **Panic strategy (decided by the owner on 2026-10-25): keep the default `panic = "unwind"`.** The Tauri template's
    `panic = "abort"` was removed from the release profile. Expected failures use `Result`; production code does not `unwrap()` or
    `expect()` unverified external data. Decoding still runs behind `catch_unwind` in workers, with malformed-file tests, because
    third-party decoders can panic on hostile input.
-2. Approval of the proposed small dependencies (`rtrb` or `ringbuf`, a resampler).
+2. Dependencies: approved by the owner on 2026-10-25 (`rtrb 0.4.0`, `rubato 5.0.1`).
 3. The clip-length cap and voice limit are placeholders until measured.
 
 ## Validation

@@ -4,14 +4,15 @@ use std::fs::File;
 use std::io;
 use std::time::Instant;
 
+use symphonia::core::audio::GenericAudioBufferRef;
 use symphonia::core::codecs::CodecParameters;
-use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::well_known::{
     FORMAT_ID_FLAC, FORMAT_ID_ISOMP4, FORMAT_ID_MP3, FORMAT_ID_OGG, FORMAT_ID_WAVE,
 };
-use symphonia::core::formats::{FormatId, FormatOptions, TrackType};
+use symphonia::core::formats::{FormatId, FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::MetadataOptions;
 
@@ -30,83 +31,117 @@ impl AudioProbe for SymphoniaProbe {
         cancel: &CancelToken,
     ) -> Result<AudioInfo, ProbeError> {
         let started = Instant::now();
-        let stream = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
-        // An empty hint: detection relies on the bytes only.
-        let mut reader = symphonia::default::get_probe()
-            .probe(
-                &Hint::new(),
-                stream,
-                FormatOptions::default(),
-                MetadataOptions::default(),
-            )
-            .map_err(map_open_error)?;
-
-        let format = classify(reader.format_info().format).ok_or(ProbeError::Unsupported)?;
-        // Exactly one track: a container with more (for example a video with sound) is not a plain audio file.
-        if reader.tracks().len() != 1 {
-            return Err(ProbeError::Unsupported);
-        }
-        let track = reader
-            .default_track(TrackType::Audio)
-            .ok_or(ProbeError::Unsupported)?;
-        let track_id = track.id;
-        let Some(CodecParameters::Audio(params)) = track.codec_params.clone() else {
-            return Err(ProbeError::Unsupported);
-        };
-        let sample_rate = params
-            .sample_rate
-            .filter(|rate| *rate > 0)
-            .ok_or(ProbeError::Invalid)?;
-        let channels = params
-            .channels
-            .as_ref()
-            .map(|c| c.count())
-            .filter(|c| *c > 0)
-            .ok_or(ProbeError::Invalid)?;
-        let channels = u16::try_from(channels).map_err(|_| ProbeError::Invalid)?;
-
-        let mut decoder = symphonia::default::get_codecs()
-            .make_audio_decoder(&params, &AudioDecoderOptions::default())
-            .map_err(|_| ProbeError::Unsupported)?;
-
+        let mut opened = open(file)?;
         // Decode everything: headers can lie about the length and a truncated file only shows up while decoding. Samples
         // are discarded packet by packet, so memory stays bounded; the frame count is the truth for the duration.
-        let max_frames = limits
-            .max_duration_ms
-            .saturating_mul(u64::from(sample_rate))
-            / 1000;
-        let mut frames: u64 = 0;
-        loop {
-            if cancel.is_cancelled() {
-                return Err(ProbeError::Cancelled);
-            }
-            if started.elapsed() > limits.max_decode_time {
-                return Err(ProbeError::TimedOut);
-            }
-            let packet = match reader.next_packet() {
-                Ok(Some(packet)) => packet,
-                Ok(None) => break,
-                Err(error) => return Err(map_stream_error(error)),
-            };
-            if packet.track_id != track_id {
-                continue;
-            }
-            let decoded = decoder.decode(&packet).map_err(map_stream_error)?;
-            frames = frames.saturating_add(decoded.frames() as u64);
-            if frames > max_frames {
-                return Err(ProbeError::TooLong);
-            }
-        }
+        let frames = decode_all(&mut opened, limits, cancel, started, |_| {})?;
         if frames == 0 {
             return Err(ProbeError::Invalid);
         }
-        let duration_ms = frames.saturating_mul(1000).div_ceil(u64::from(sample_rate));
+        let duration_ms = frames
+            .saturating_mul(1000)
+            .div_ceil(u64::from(opened.sample_rate));
         Ok(AudioInfo {
-            format,
+            format: opened.format,
             duration_ms,
-            sample_rate,
-            channels,
+            sample_rate: opened.sample_rate,
+            channels: opened.channels,
         })
+    }
+}
+
+/// An opened audio file: a container reader positioned at the first packet and a decoder for its single audio track.
+pub(super) struct Opened {
+    reader: Box<dyn FormatReader>,
+    decoder: Box<dyn AudioDecoder>,
+    track_id: u32,
+    pub(super) format: AudioFormat,
+    pub(super) sample_rate: u32,
+    pub(super) channels: u16,
+}
+
+/// Recognizes the container from the bytes only (an empty hint) and prepares a decoder.
+pub(super) fn open(file: File) -> Result<Opened, ProbeError> {
+    let stream = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
+    let reader = symphonia::default::get_probe()
+        .probe(
+            &Hint::new(),
+            stream,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )
+        .map_err(map_open_error)?;
+
+    let format = classify(reader.format_info().format).ok_or(ProbeError::Unsupported)?;
+    // Exactly one track: a container with more (for example a video with sound) is not a plain audio file.
+    if reader.tracks().len() != 1 {
+        return Err(ProbeError::Unsupported);
+    }
+    let track = reader
+        .default_track(TrackType::Audio)
+        .ok_or(ProbeError::Unsupported)?;
+    let track_id = track.id;
+    let Some(CodecParameters::Audio(params)) = track.codec_params.clone() else {
+        return Err(ProbeError::Unsupported);
+    };
+    let sample_rate = params
+        .sample_rate
+        .filter(|rate| *rate > 0)
+        .ok_or(ProbeError::Invalid)?;
+    let channels = params
+        .channels
+        .as_ref()
+        .map(|c| c.count())
+        .filter(|c| *c > 0)
+        .ok_or(ProbeError::Invalid)?;
+    let channels = u16::try_from(channels).map_err(|_| ProbeError::Invalid)?;
+    let decoder = symphonia::default::get_codecs()
+        .make_audio_decoder(&params, &AudioDecoderOptions::default())
+        .map_err(|_| ProbeError::Unsupported)?;
+    Ok(Opened {
+        reader,
+        decoder,
+        track_id,
+        format,
+        sample_rate,
+        channels,
+    })
+}
+
+/// Decodes every packet, calling `sink` with each decoded buffer, under the limits. Returns the number of frames decoded.
+pub(super) fn decode_all(
+    opened: &mut Opened,
+    limits: &ProbeLimits,
+    cancel: &CancelToken,
+    started: Instant,
+    mut sink: impl FnMut(&GenericAudioBufferRef<'_>),
+) -> Result<u64, ProbeError> {
+    let max_frames = limits
+        .max_duration_ms
+        .saturating_mul(u64::from(opened.sample_rate))
+        / 1000;
+    let mut frames: u64 = 0;
+    loop {
+        if cancel.is_cancelled() {
+            return Err(ProbeError::Cancelled);
+        }
+        if started.elapsed() > limits.max_decode_time {
+            return Err(ProbeError::TimedOut);
+        }
+        let packet = match opened.reader.next_packet() {
+            Ok(Some(packet)) => packet,
+            Ok(None) => return Ok(frames),
+            Err(error) => return Err(map_stream_error(error)),
+        };
+        if packet.track_id != opened.track_id {
+            continue;
+        }
+        let decoded = opened.decoder.decode(&packet).map_err(map_stream_error)?;
+        frames = frames.saturating_add(decoded.frames() as u64);
+        if frames > max_frames {
+            return Err(ProbeError::TooLong);
+        }
+        sink(&decoded);
     }
 }
 
