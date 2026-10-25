@@ -1,5 +1,6 @@
 {
   "library": {
+    "title": "Бібліотека",
     "opening": "Відкриваємо бібліотеку…",
     "count_one": "{{count}} звук",
     "count_few": "{{count}} звуки",

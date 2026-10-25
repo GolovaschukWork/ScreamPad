@@ -3,8 +3,8 @@ import { SettingsPanel } from "../features/settings/SettingsPanel";
 
 export default function App() {
   return (
-    <main>
-      <h1>ScreamPad</h1>
+    <main className="app">
+      <h1 className="app-title">ScreamPad</h1>
       <SettingsPanel />
       <LibraryView />
     </main>

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppError } from "../../shared/ipc/bindings";
 import { errorText } from "../../shared/ipc/errors";
@@ -10,6 +11,7 @@ const MASTER_MAX_MILLIBELS = 0;
 
 export function SettingsPanel() {
   const { t, i18n } = useTranslation();
+  const languageId = useId();
   const { state, problem, save } = useSettings();
 
   const failureText = (error: AppError | null) => (error ? errorText(t, error) : t("errors.backendUnreachable"));
@@ -20,16 +22,16 @@ export function SettingsPanel() {
   };
 
   return (
-    <section aria-label={t("settings.title")}>
+    <section className="card" aria-label={t("settings.title")}>
       <h2>{t("settings.title")}</h2>
-      {state.status === "loading" && <p role="status">{t("settings.loading")}</p>}
-      {state.status === "error" && <p role="alert">{failureText(state.error)}</p>}
+      {state.status === "loading" && <p className="notice" role="status">{t("settings.loading")}</p>}
+      {state.status === "error" && <p className="notice notice-error" role="alert">{failureText(state.error)}</p>}
       {state.status === "ready" && (
         <>
-          <p>
-            <label>
-              {t("settings.language")}{" "}
-              <select
+          <div className="field">
+            <label htmlFor={languageId}>{t("settings.language")}</label>
+            <select
+                id={languageId}
                 value={state.settings.language}
                 onChange={(event) => void save(event.currentTarget.value, state.settings.masterGainMillibels)}
               >
@@ -38,9 +40,8 @@ export function SettingsPanel() {
                     {name}
                   </option>
                 ))}
-              </select>
-            </label>
-          </p>
+            </select>
+          </div>
           <DbSlider
             label={t("settings.masterVolume")}
             valueMillibels={state.settings.masterGainMillibels}
@@ -51,7 +52,7 @@ export function SettingsPanel() {
           />
         </>
       )}
-      <p role="alert">{problem !== undefined && failureText(problem)}</p>
+      <p className="notice notice-error" role="alert">{problem !== undefined && failureText(problem)}</p>
     </section>
   );
 }

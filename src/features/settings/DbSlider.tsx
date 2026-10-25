@@ -32,8 +32,8 @@ export function DbSlider({ label, valueMillibels, minMillibels, maxMillibels, lo
   };
 
   return (
-    <div>
-      <label htmlFor={id}>{label}</label>{" "}
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
       <input
         id={id}
         type="range"
@@ -49,7 +49,7 @@ export function DbSlider({ label, valueMillibels, minMillibels, maxMillibels, lo
           timer.current = window.setTimeout(() => commitNow(next), COMMIT_DELAY_MS);
         }}
         onBlur={() => commitNow(draft)}
-      />{" "}
+      />
       <output htmlFor={id}>{formatDb(draft, locale)}</output>
     </div>
   );

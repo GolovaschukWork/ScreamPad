@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppError, PlayModeDto, SoundSummary } from "../../shared/ipc/bindings";
 import { errorText } from "../../shared/ipc/errors";
@@ -17,6 +17,7 @@ type Props = {
 
 export function SoundOptions({ sound, onChange }: Props) {
   const { t, i18n } = useTranslation();
+  const modeId = useId();
   const [problem, setProblem] = useState<AppError | null | undefined>(undefined);
   const modeNames: Record<PlayModeDto, string> = {
     overlap: t("sound.modeOverlap"),
@@ -30,7 +31,7 @@ export function SoundOptions({ sound, onChange }: Props) {
   };
 
   return (
-    <details>
+    <details className="sound-options">
       <summary aria-label={t("sound.options", { name: sound.displayName })}>{t("sound.optionsShort")}</summary>
       <DbSlider
         label={t("sound.gain")}
@@ -40,10 +41,9 @@ export function SoundOptions({ sound, onChange }: Props) {
         locale={i18n.language}
         onCommit={(millibels) => void change(millibels, sound.playMode)}
       />
-      <p>
-        <label>
-          {t("sound.playMode")}{" "}
-          <select
+      <div className="field">
+        <label htmlFor={modeId}>{t("sound.playMode")}</label>
+        <select
             value={sound.playMode}
             onChange={(event) => {
               const mode = PLAY_MODES.find((candidate) => candidate === event.currentTarget.value);
@@ -55,10 +55,9 @@ export function SoundOptions({ sound, onChange }: Props) {
                 {modeNames[mode]}
               </option>
             ))}
-          </select>
-        </label>
-      </p>
-      <p role="alert">{problem !== undefined && (problem ? errorText(t, problem) : t("errors.backendUnreachable"))}</p>
+        </select>
+      </div>
+      <p className="notice notice-error" role="alert">{problem !== undefined && (problem ? errorText(t, problem) : t("errors.backendUnreachable"))}</p>
     </details>
   );
 }

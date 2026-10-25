@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./app/App";
+import "./app/tokens.css";
+import "./app/app.css";
 import { applyLanguage, initI18n } from "./shared/i18n";
 import { commands } from "./shared/ipc/bindings";
 

@@ -1,5 +1,6 @@
 {
   "library": {
+    "title": "Library",
     "opening": "Opening the library…",
     "count_one": "{{count}} sound",
     "count_other": "{{count}} sounds",

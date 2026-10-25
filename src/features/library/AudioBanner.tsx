@@ -22,22 +22,22 @@ export function AudioBanner({ state, onRetry }: { state: AudioState; onRetry: ()
 
   if (state.status === "loading") return null;
   if (state.status === "error") {
-    return <p role="alert">{state.error ? errorText(t, state.error) : t("errors.backendUnreachable")}</p>;
+    return <p className="notice notice-error" role="alert">{state.error ? errorText(t, state.error) : t("errors.backendUnreachable")}</p>;
   }
   switch (state.audio.state) {
     case "running":
       return null;
     case "starting":
-      return <p role="status">{t("audio.starting")}</p>;
+      return <p className="notice" role="status">{t("audio.starting")}</p>;
     case "recovering":
-      return <p role="status">{t("audio.recovering")}</p>;
+      return <p className="notice" role="status">{t("audio.recovering")}</p>;
     case "stopped":
-      return <p role="status">{t("audio.stopped")}</p>;
+      return <p className="notice" role="status">{t("audio.stopped")}</p>;
     case "failed":
       return (
-        <p role="alert">
+        <p className="notice notice-error" role="alert">
           {failureText(t, state.audio.failure)}{" "}
-          <button type="button" onClick={onRetry}>
+          <button type="button" className="btn" onClick={onRetry}>
             {t("audio.retry")}
           </button>
         </p>

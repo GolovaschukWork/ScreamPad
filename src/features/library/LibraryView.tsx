@@ -18,18 +18,24 @@ function SoundItem({ sound, onPlay, onOptions }: { sound: SoundSummary; onPlay: 
   const { t, i18n } = useTranslation();
   const unavailable = sound.status !== "available";
   return (
-    <li>
+    <li className="sound">
       <button
         type="button"
+        className="btn btn-primary"
         onClick={() => onPlay(sound.id)}
         disabled={unavailable}
         aria-label={t("sound.play", { name: sound.displayName })}
       >
         {t("sound.playShort")}
-      </button>{" "}
-      <strong>{sound.displayName}</strong> · {sound.format.toUpperCase()} · {formatDuration(sound.durationMs, i18n.language)}
-      {sound.status === "missing" && <em> · {t("sound.missing")}</em>}
-      {sound.status === "damaged" && <em> · {t("sound.damaged")}</em>}
+      </button>
+      <div>
+        <p className="sound-name">{sound.displayName}</p>
+        <p className="sound-meta">
+          {sound.format.toUpperCase()} · {formatDuration(sound.durationMs, i18n.language)}
+          {sound.status === "missing" && <span className="sound-warning"> · {t("sound.missing")}</span>}
+          {sound.status === "damaged" && <span className="sound-warning"> · {t("sound.damaged")}</span>}
+        </p>
+      </div>
       <SoundOptions sound={sound} onChange={onOptions} />
     </li>
   );
@@ -42,43 +48,49 @@ export function LibraryView() {
   const importing = importState.status === "running";
 
   return (
-    <section>
-      <p>
-        <button type="button" onClick={() => void importSound()} disabled={importing}>
+    <section className="card" aria-label={t("library.title")}>
+      <h2>{t("library.title")}</h2>
+      <div className="toolbar">
+        <button type="button" className="btn btn-primary" onClick={() => void importSound()} disabled={importing}>
           {importing ? t("import.running") : t("import.button")}
         </button>
-      </p>
+        {list.status === "ready" && list.sounds.length > 0 && (
+          <>
+            <span className="spacer" />
+            <span className="muted">{t("library.count", { count: list.sounds.length })}</span>
+            <button type="button" className="btn btn-danger" onClick={() => void stopAll()}>
+              {t("sound.stopAll")}
+            </button>
+          </>
+        )}
+      </div>
 
-      <p role="status" aria-live="polite">
+      <p className="notice" role="status" aria-live="polite">
         {importState.status === "done" &&
           (importState.alreadyInLibrary
             ? t("import.alreadyInLibrary", { name: importState.name })
             : t("import.done", { name: importState.name }))}
       </p>
-      <p role="alert">{importState.status === "error" && failureText(t, importState.error)}</p>
+      <p className="notice notice-error" role="alert">
+        {importState.status === "error" && failureText(t, importState.error)}
+      </p>
 
       <AudioBanner state={audio} onRetry={() => void retry()} />
-      <p role="alert">{problem !== undefined && failureText(t, problem)}</p>
+      <p className="notice notice-error" role="alert">
+        {problem !== undefined && failureText(t, problem)}
+      </p>
 
-      {list.status === "loading" && <p role="status">{t("library.opening")}</p>}
-      {list.status === "error" && <p role="alert">{failureText(t, list.error)}</p>}
+      {list.status === "loading" && <p className="notice" role="status">{t("library.opening")}</p>}
+      {list.status === "error" && <p className="notice notice-error" role="alert">{failureText(t, list.error)}</p>}
       {list.status === "ready" &&
         (list.sounds.length === 0 ? (
-          <p>{t("library.empty")}</p>
+          <p className="muted">{t("library.empty")}</p>
         ) : (
-          <>
-            <p>
-              {t("library.count", { count: list.sounds.length })}{" "}
-              <button type="button" onClick={() => void stopAll()}>
-                {t("sound.stopAll")}
-              </button>
-            </p>
-            <ul aria-label={t("sound.list")}>
-              {list.sounds.map((sound) => (
-                <SoundItem key={sound.id} sound={sound} onPlay={(id) => void play(id)} onOptions={setOptions} />
-              ))}
-            </ul>
-          </>
+          <ul className="sound-list" aria-label={t("sound.list")}>
+            {list.sounds.map((sound) => (
+              <SoundItem key={sound.id} sound={sound} onPlay={(id) => void play(id)} onOptions={setOptions} />
+            ))}
+          </ul>
         ))}
     </section>
   );
