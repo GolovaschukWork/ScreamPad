@@ -38,3 +38,15 @@ Checked: `vitest` accepts Vite 8 and `@types/node >=24`; Testing Library accepts
 - jsdom is not a browser: layout, focus rings and real WebView behaviour still need visual checks (browser and Tauri).
 - jsdom lacks `matchMedia` and `ResizeObserver`; the shared test setup provides minimal stand-ins, nothing more.
 - Components stay testable by keeping state and IPC calls in hooks and rendering in presentational components.
+
+## Implementation notes (2026-10-25)
+- Shell, navigation and settings landed first; the library redesign followed in a second change.
+- The library keeps one data source and one set of handlers for both views: `LibraryPage` owns the data (`useLibrary`), the
+  audio actions (`useAudio`) and the playing state (`usePlayingSounds`: `playing_sounds` once, then `PlayingChanged` events),
+  and hands the same props to `SoundGrid`-style tiles and list rows through `SoundCollection`. A sound is shown as playing
+  only when the backend says so, never because it was clicked.
+- View mode, sort key and search text live in a small session store (`libraryViewStore`), outside the page, so they survive a
+  visit to Settings. They are not persisted.
+- Large libraries: tiles and rows use `content-visibility: auto`; no virtualization library was added. Measure before adding one.
+- jsdom limits (documented in the tests): the slider thumb is `visibility: hidden` until Base UI measures it, so it is looked up by
+  its label; layout, focus rings and real WebView behaviour need the visual checks.

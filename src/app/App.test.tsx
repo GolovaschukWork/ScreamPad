@@ -8,7 +8,7 @@ import App from "./App";
 
 vi.mock("../shared/ipc/bindings", async () => {
   const fake = await import("../test/fakeBindings");
-  return { commands: fake.commands };
+  return { commands: fake.commands, events: fake.events };
 });
 
 function renderApp() {

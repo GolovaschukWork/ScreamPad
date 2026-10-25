@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LibraryView } from "../features/library/LibraryView";
+import { LibraryPage } from "../features/library/LibraryPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { Toaster } from "@/shared/ui/sonner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
@@ -14,14 +14,7 @@ export default function App() {
   return (
     <TooltipProvider>
       <AppShell current={page} onNavigate={setPage}>
-        {page === "library" && (
-          <>
-            <PageHeader title={t("nav.library")} />
-            <PageBody>
-              <LibraryView />
-            </PageBody>
-          </>
-        )}
+        {page === "library" && <LibraryPage />}
         {page === "settings" && (
           <>
             <PageHeader title={t("nav.settings")} />

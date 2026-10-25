@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { AppError, PlayResult, SettingsDto, SoundSummary, ThemeDto } from "../shared/ipc/bindings";
+import type { AppError, ImportResult, PlayModeDto, PlayResult, SettingsDto, SoundSummary, ThemeDto } from "../shared/ipc/bindings";
 
 /** The fake backend behind the IPC boundary. It follows the real contract: results are `{status, data|error}`. */
 export const backend = {
@@ -12,6 +12,10 @@ export const backend = {
   /** When set, `getSettings`/`listSounds` fail with this error. */
   failReadsWith: null as AppError | null,
   appInfoFails: false,
+  /** What `importSound` answers: `null` is a cancelled dialog. */
+  importResult: null as ImportResult | null,
+  importError: null as AppError | null,
+  playing: [] as number[],
   playResult: "started" as PlayResult,
 };
 
@@ -22,7 +26,30 @@ export function resetBackend(): void {
   backend.holdUpdate = null;
   backend.failReadsWith = null;
   backend.appInfoFails = false;
+  backend.importResult = null;
+  backend.importError = null;
+  backend.playing = [];
   backend.playResult = "started";
+}
+
+type PlayingEvent = { payload: { ids: number[] } };
+const playingListeners = new Set<(event: PlayingEvent) => void>();
+
+/** The `PlayingChanged` event of the real bindings. `emitPlaying` is the backend announcing a change. */
+export const events = {
+  playingChanged: {
+    listen: vi.fn(async (handler: (event: PlayingEvent) => void) => {
+      playingListeners.add(handler);
+      return () => {
+        playingListeners.delete(handler);
+      };
+    }),
+  },
+};
+
+export function emitPlaying(ids: number[]): void {
+  backend.playing = [...ids];
+  for (const listener of playingListeners) listener({ payload: { ids } });
 }
 
 const ok = <T>(data: T) => ({ status: "ok" as const, data });
@@ -42,11 +69,21 @@ export const commands = {
   }),
   listSounds: vi.fn(async () => (backend.failReadsWith ? failed(backend.failReadsWith) : ok([...backend.sounds]))),
   audioStatus: vi.fn(async () => ok({ state: "running" as const, failure: null, sampleRate: 48000, channels: 2 })),
-  playSound: vi.fn(async (_id: number) => ok(backend.playResult)),
+  playSound: vi.fn(async (_id: number): Promise<{ status: "ok"; data: PlayResult } | { status: "error"; error: AppError }> =>
+    ok(backend.playResult),
+  ),
   stopAllSounds: vi.fn(async () => ok(null)),
+  stopSound: vi.fn(async (_id: number) => ok(null)),
+  playingSounds: vi.fn(async () => ok([...backend.playing])),
   retryAudio: vi.fn(async () => ok(null)),
-  importSound: vi.fn(async () => ok(null)),
-  setSoundOptions: vi.fn(async () => failed({ kind: "internal" })),
+  importSound: vi.fn(async () => (backend.importError ? failed(backend.importError) : ok(backend.importResult))),
+  setSoundOptions: vi.fn(async (id: number, gainMillibels: number, playMode: PlayModeDto) => {
+    const found = backend.sounds.find((candidate) => candidate.id === id);
+    if (!found) return failed({ kind: "soundNotFound" });
+    const updated = { ...found, gainMillibels, playMode };
+    backend.sounds = backend.sounds.map((candidate) => (candidate.id === id ? updated : candidate));
+    return ok(updated);
+  }),
 };
 
 export function sound(overrides: Partial<SoundSummary> & { id: number }): SoundSummary {
