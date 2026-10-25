@@ -73,7 +73,6 @@
     "playbackDecodeTimeout": "Preparing this sound took too long."
   },
   "settings": {
-    "title": "Settings",
     "language": "Language",
     "languageSystem": "Same as the system",
     "languageEn": "English",
@@ -83,6 +82,22 @@
     "theme": "Theme",
     "themeSystem": "Same as the system",
     "themeDark": "Dark",
-    "themeLight": "Light"
+    "themeLight": "Light",
+    "general": "General",
+    "appearance": "Appearance",
+    "audio": "Audio",
+    "about": "About",
+    "themeHint": "Applies immediately and is remembered.",
+    "masterVolumeHint": "Applies to every sound.",
+    "appName": "Application",
+    "version": "Version",
+    "versionUnknown": "Unavailable",
+    "license": "License",
+    "licensePending": "Open source, license to be announced"
+  },
+  "nav": {
+    "label": "Main navigation",
+    "library": "Library",
+    "settings": "Settings"
   }
 }

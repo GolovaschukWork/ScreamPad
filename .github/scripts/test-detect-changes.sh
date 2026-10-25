@@ -22,6 +22,7 @@ check "unrelated workflow" "frontend=false native=false codeql=false" ".github/w
 check "license" "frontend=false native=false codeql=false" "LICENSE"
 check "gitignore" "frontend=false native=false codeql=false" ".gitignore"
 check "ts source" "frontend=true native=false codeql=true" "src/app/App.tsx"
+check "vitest config" "frontend=true native=false codeql=false" "vitest.config.ts"
 check "css only" "frontend=true native=false codeql=false" "src/app/App.css"
 check "index.html" "frontend=true native=false codeql=false" "index.html"
 check "rust source" "frontend=false native=true codeql=false" "src-tauri/src/lib.rs"

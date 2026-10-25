@@ -32,6 +32,7 @@ export function SoundOptions({ sound, onChange }: Props) {
   return (
     <details>
       <summary aria-label={t("sound.options", { name: sound.displayName })}>{t("sound.optionsShort")}</summary>
+      <p>{t("sound.gain")}</p>
       <DbSlider
         label={t("sound.gain")}
         valueMillibels={sound.gainMillibels}
