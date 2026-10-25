@@ -12,6 +12,7 @@ Accepted decisions:
 - 0009 Backend-owned file selection (native dialog opened from Rust)
 - 0010 Application settings and per-sound playback options (schema 2)
 
-Proposed (awaiting owner decision): none.
+Proposed (awaiting owner decision):
+- 0011 UI stack (Tailwind v4, shadcn/ui on Base UI, Lucide, Sonner)
 
 Future ADRs required for: URL providers, FFmpeg distribution, non-destructive edit schema, license and signing provider.
