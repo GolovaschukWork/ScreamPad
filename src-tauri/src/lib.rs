@@ -1,7 +1,7 @@
-mod commands;
+pub mod commands;
 pub mod infrastructure;
-mod ipc;
-mod state;
+pub mod ipc;
+pub mod state;
 
 use tauri::Manager;
 
