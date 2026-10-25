@@ -26,10 +26,14 @@ pub const MIGRATIONS: &[ShippedMigration] = &[ShippedMigration {
 pub const SHIPPED_CHECKSUMS: &[(&str, u64)] = &[("0001_create_sounds", 0x6f9d724e549f738c)];
 
 /// Non-cryptographic checksum, enough to detect an accidental edit without adding a dependency.
+///
+/// Carriage returns are skipped: a Windows checkout may convert LF to CRLF, and that must not look like an edit.
 pub fn checksum(sql: &str) -> u64 {
-    sql.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-    })
+    sql.bytes()
+        .filter(|byte| *byte != b'\r')
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        })
 }
 
 /// The production migration list.
