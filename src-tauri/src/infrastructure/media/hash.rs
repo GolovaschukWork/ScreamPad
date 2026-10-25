@@ -7,9 +7,33 @@ use sha2::{Digest, Sha256};
 /// Read buffer for streaming hashing. Memory use stays constant regardless of file size.
 const CHUNK_SIZE: usize = 64 * 1024;
 
+/// Incremental SHA-256, for hashing bytes while they are being copied.
+pub struct StreamHasher(Sha256);
+
+impl StreamHasher {
+    pub fn new() -> Self {
+        Self(Sha256::new())
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+
+    /// Lowercase hex digest (64 characters).
+    pub fn finish(self) -> String {
+        to_lower_hex(&self.0.finalize())
+    }
+}
+
+impl Default for StreamHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// SHA-256 of everything `reader` yields, as lowercase hex (64 characters). Reads in fixed-size chunks.
 pub fn sha256_hex_reader(mut reader: impl Read) -> io::Result<String> {
-    let mut hasher = Sha256::new();
+    let mut hasher = StreamHasher::new();
     let mut buffer = vec![0_u8; CHUNK_SIZE];
     loop {
         match reader.read(&mut buffer) {
@@ -19,7 +43,7 @@ pub fn sha256_hex_reader(mut reader: impl Read) -> io::Result<String> {
             Err(error) => return Err(error),
         }
     }
-    Ok(to_lower_hex(&hasher.finalize()))
+    Ok(hasher.finish())
 }
 
 /// SHA-256 of the file's bytes, streamed from disk.

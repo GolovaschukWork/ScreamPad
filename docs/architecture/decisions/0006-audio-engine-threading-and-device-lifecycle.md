@@ -101,6 +101,7 @@ States: `Closed → Opening → Running → Recovering → Running | Failed`.
   oversized input and enforce limits on duration, sample count and decoded size before allocating.
 - Enable only the `symphonia` codec and format features the product needs (initial proposal: WAV/PCM, FLAC, MP3, Ogg Vorbis,
   and MP4/AAC for audio extracted from common containers); avoid `all`. The exact list is confirmed in the implementation PR.
+  **Chosen for the import PR (2026-10-25):** `symphonia =0.6.1` with `default-features = false` and the features `wav`, `pcm`, `flac`, `mp3`, `ogg`, `vorbis`, `isomp4`, `aac`, `id3v2` (the last so MP3 files with ID3 tags are recognized). The library is MPL-2.0; its compatibility with the project license stays part of the license audit.
 
 ### Ports and code layout
 - A small `AudioBackend`/`OutputStream` port in `audio` hides `cpal` so the engine supervisor can be tested against a fake

@@ -8,6 +8,10 @@ export const commands = {
 	appInfo: () => __TAURI_INVOKE<AppInfo>("app_info"),
 	/**  Reads library statistics. The query runs on the blocking pool, never on the async runtime or an audio thread. */
 	libraryStats: () => typedError<LibraryStats, AppError>(__TAURI_INVOKE("library_stats")),
+	/**  Lists the library. A sound whose file is missing or damaged is still listed, with its status. */
+	listSounds: () => typedError<SoundSummary[], AppError>(__TAURI_INVOKE("list_sounds")),
+	/**  Checks that a sound's managed file is usable: `mediaMissing` or `mediaCorrupt` otherwise. The database row is never changed. */
+	checkSoundMedia: (id: number) => typedError<null, AppError>(__TAURI_INVOKE("check_sound_media", { id })),
 };
 
 /* Types */
@@ -15,7 +19,11 @@ export const commands = {
  *  The error contract of the IPC layer. It carries a machine-readable `kind` and, where useful, numbers.
  *  It never carries free text, file names or paths: the UI maps each `kind` to a message.
  */
-export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kind: "storageCorrupt" } | { kind: "storageTooNew"; database: number; supported: number } | { kind: "storageMigration" } | { kind: "storageConstraint" } | { kind: "storageIo" } | { kind: "internal" };
+export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kind: "storageCorrupt" } | { kind: "storageTooNew"; database: number; supported: number } | { kind: "storageMigration" } | { kind: "storageConstraint" } | { kind: "storageIo" } | { kind: "importBusy" } | { kind: "importCancelled" } | { kind: "importSourceUnreadable" } | { kind: "importSourceNotRegularFile" } | { kind: "importSourceChanged" } | { kind: "importEmpty" } | { kind: "importTooLarge" } | { kind: "importStagingQuotaExceeded" } | { kind: "importDiskFull" } | { kind: "importUnsupportedFormat" } | { kind: "importCorrupt" } | { kind: "importTooLong" } | { kind: "importDecodeTimeout" } | { kind: "libraryInconsistent" } | 
+/**  The sound's managed file is gone. The database row is kept. */
+{ kind: "mediaMissing" } | 
+/**  The sound's managed file does not match what was recorded. */
+{ kind: "mediaCorrupt" } | { kind: "internal" };
 
 /**  Static information about the running application. */
 export type AppInfo = {
@@ -27,6 +35,23 @@ export type AppInfo = {
 export type LibraryStats = {
 	soundCount: number,
 	schemaVersion: number,
+};
+
+/**  Whether a sound's managed file can be used, as of the last reconciliation. */
+export type SoundStatus = "available" | "missing" | "damaged";
+
+/**  A sound as shown in the library list. */
+export type SoundSummary = {
+	id: number,
+	displayName: string,
+	/**  Lowercase extension of the managed file, for example `wav`. */
+	format: string,
+	durationMs: number,
+	sampleRate: number,
+	channels: number,
+	/**  Exact up to 2^53 bytes; larger values are rejected as an internal error. */
+	sizeBytes: number | null,
+	status: SoundStatus,
 };
 
 /* Tauri Specta runtime */

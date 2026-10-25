@@ -2,11 +2,11 @@ use rusqlite::Connection;
 use rusqlite_migration::{Error as MigrationError, M, MigrationDefinitionError, Migrations};
 
 use super::migrations::list_backups;
-use super::test_support::TempDir;
 use super::{
     Database, MIGRATIONS, SHIPPED_CHECKSUMS, StorageError, checksum, migrate, migrations,
     open_reader, open_writer, quarantine_corrupt,
 };
+use crate::test_support::TempDir;
 
 const SOUNDS: &str =
     "CREATE TABLE sounds (id INTEGER PRIMARY KEY, hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL);";

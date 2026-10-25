@@ -1,6 +1,6 @@
 # ADR 0007: Managed Library Import: Atomicity, Cleanup And Recovery
 
-- Status: Proposed
+- Status: Accepted with conditions (owner, 2026-10-25); implemented for local audio files
 - Date: 2026-10-25
 - Owner: TBD
 
@@ -45,6 +45,29 @@ relative storage key, and media columns are immutable. Managed files are immutab
    appeared meanwhile: treat as step 4. The file is durable before the commit, so a committed row never points at a file that
    could be lost with the same power failure.
 
+### Durability of the move (researched 2026-10-25)
+A completed `rename` is atomic with respect to other processes but is **not** automatically durable after a power loss, so the
+order and the flushes below are part of the design.
+
+- **Order:** write the staged file, `sync_all` it, rename it, flush the move, set it read-only, and only then commit the row. A
+  committed row therefore never refers to a file that a power failure could take away.
+- **macOS:** `fsync` only hands data to the drive, which may keep it in its own cache; Apple's man page for `fsync(2)` names
+  `fcntl(F_FULLFSYNC)` as the call that asks the drive to flush to permanent storage. The Rust standard library's
+  `File::sync_all` and `sync_data` issue `F_FULLFSYNC` on Apple targets (`library/std/src/sys/fs/unix.rs`), so using `sync_all`
+  gives the stronger guarantee. The containing directory is flushed with the same call after the rename.
+- **Linux and other Unix:** `fsync` on the file and on the containing directory.
+- **Windows:** `File::sync_all` calls `FlushFileBuffers`, which Microsoft's guidance treats as the way to commit data to disk.
+  The standard library cannot open a directory for flushing, so after the rename the file is reopened for writing and flushed
+  again. `MoveFileEx` with `MOVEFILE_WRITE_THROUGH` is documented to guarantee the flush only for a move performed as
+  copy-and-delete, so it is not relied on for a same-volume rename. Whether an NTFS rename survives a power loss is **not
+  documented and not verified**.
+- **If a rename is lost anyway** the file is still in `staging/` (removed at startup) and the row is not yet committed; if the
+  commit survived but the rename did not, the row is reported as `MediaMissing` and is never deleted automatically.
+- A file system that cannot flush a directory (some network, FAT-like or external volumes) is tolerated: failing the import
+  would not make it more durable.
+
+Sources: Apple `fsync(2)` man page; Rust `library/std/src/sys/fs/unix.rs`; Microsoft Learn `MoveFileExW`.
+
 ### Failure points and outcomes
 | Interruption | State left behind | Recovery |
 | --- | --- | --- |
@@ -84,6 +107,31 @@ a violated one is handled as a duplicate, never as a crash.
 - Extra complexity: a file-system port, a worker with a queue, and a startup reconciliation task.
 - Users with many gigabytes of audio pay one full read per imported file (hash plus probe); this is intended.
 
+## Owner conditions (2026-10-25) and how the implementation meets them
+1. Order `staging → validation → hash → durable publish → SQLite commit`: implemented (hash and copy are one streaming pass).
+2. Staging and media are siblings under one library root, so the final move is a same-volume rename; there is no copy fallback.
+3. Filesystem sync operations for Windows and macOS: researched and documented above.
+4. Orphans are removed after a 24 hour grace period, never when a row refers to them or a running import owns them (a registry of
+   active staging files and storage keys, plus a second database check right before deleting). Names that are not valid storage
+   keys are never touched.
+5. Reconciliation runs on a background thread after startup and never blocks the UI.
+6. A row whose file is missing or whose size differs is reported (`mediaMissing`, `mediaCorrupt`) and kept; there is no new column
+   and no row is ever deleted by reconciliation. Status is kept in memory from the last reconciliation.
+7. Managed files are written once, made read-only, and never rewritten; schema 1 also makes the media columns immutable.
+8. Migration 0001 is unchanged; future schema changes are new forward-only migrations.
+
+## Resource limits
+Streaming copy, hashing and validation are implemented; memory use is constant. No import is unbounded: a size cap that is also
+enforced while copying (a file that grows), a cap on the total size of `staging/`, a duration cap measured by decoding rather than
+by headers, a wall-clock budget for validation, cooperative cancellation with cleanup, and a single running import (a second
+caller gets `Busy`). Decoder panics are contained and reported as a corrupt file. Containers with more than one track (for example
+a video with sound) are rejected. The numeric values are **provisional** (512 MiB file, 1 GiB staging, 30 minutes, 120 seconds)
+and will be set from measurements before beta.
+
+**Not done:** checking free disk space before copying needs a platform call or a new dependency, so protection against a full disk
+relies on the staging cap and on handling the write error (`DiskFull`) with cleanup. This is a candidate for the next dependency
+review.
+
 ## Validation
 - Failure-injection tests through a file-system port with failpoints at every numbered step and at each table row above; after each
   injected failure and a simulated restart, assert these invariants: every row has a file of the recorded size; `staging/` is
@@ -91,5 +139,6 @@ a violated one is handled as a duplicate, never as a crash.
 - Negative-path tests: empty, truncated, corrupt, non-audio, wrong-extension (for example MP3 named `.wav`), oversized, directory,
   unreadable and symlinked sources; a source that changes during the copy; a full disk (limited temporary volume where available).
 - Duplicate import, concurrent submission of the same file, and an orphan present at the final key.
-- Windows 11 and Intel macOS runs in CI; real removable-media, antivirus and power-loss behavior are NOT VERIFIED until tested on
-  hardware.
+- Implemented: failure injection at every numbered step and table row (import, reconciliation, probe and domain tests), negative-path media tests with committed
+  fixtures, and reconciliation tests. Windows 11 and Intel macOS run in CI. Real removable-media, antivirus and power-loss
+  behavior, and the NTFS rename durability above, are NOT VERIFIED until tested on hardware.
