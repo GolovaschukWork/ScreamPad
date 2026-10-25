@@ -17,7 +17,7 @@ use super::backend::{
     AudioBackend, BackendError, EventSink, OutputFormat, RunningStream, StreamEvent,
 };
 use super::clip::Clip;
-use super::mixer::{ControlError, Event, MixerHandle, mixer};
+use super::mixer::{ControlError, Event, MixerHandle, Stats, mixer};
 
 const MESSAGE_CAPACITY: usize = 64;
 /// How long a caller waits for the engine thread to answer.
@@ -114,10 +114,28 @@ struct Shared {
     device_losses: AtomicU64,
     opens: AtomicU64,
     rejected_plays: AtomicU64,
-    callbacks: AtomicU64,
+    /// The current stream's mixer counters, read live so a snapshot is never stale.
+    mixer_stats: RwLock<Option<Arc<Stats>>>,
 }
 
 impl Shared {
+    fn callbacks(&self) -> u64 {
+        let stats = self
+            .mixer_stats
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        stats
+            .as_ref()
+            .map_or(0, |stats| stats.callbacks.load(Ordering::Relaxed))
+    }
+
+    fn set_mixer_stats(&self, stats: Option<Arc<Stats>>) {
+        *self
+            .mixer_stats
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = stats;
+    }
+
     fn set(&self, state: EngineState, format: Option<OutputFormat>) {
         *self
             .snapshot
@@ -146,7 +164,7 @@ impl AudioEngine {
             device_losses: AtomicU64::new(0),
             opens: AtomicU64::new(0),
             rejected_plays: AtomicU64::new(0),
-            callbacks: AtomicU64::new(0),
+            mixer_stats: RwLock::new(None),
         });
         let worker_sender = sender.clone();
         let worker_shared = Arc::clone(&shared);
@@ -175,7 +193,7 @@ impl AudioEngine {
             device_losses: self.shared.device_losses.load(Ordering::Relaxed),
             opens: self.shared.opens.load(Ordering::Relaxed),
             rejected_plays: self.shared.rejected_plays.load(Ordering::Relaxed),
-            callbacks: self.shared.callbacks.load(Ordering::Relaxed),
+            callbacks: self.shared.callbacks(),
         }
     }
 
@@ -302,6 +320,7 @@ impl Worker {
 
     fn stop(mut self) {
         self.session = None;
+        self.shared.set_mixer_stats(None);
         self.shared.set(EngineState::Stopped, None);
     }
 
@@ -383,6 +402,7 @@ impl Worker {
             return;
         }
         self.shared.device_losses.fetch_add(1, Ordering::Relaxed);
+        self.shared.set_mixer_stats(None);
         self.attempt = 0;
         self.retry_at = Some(Instant::now());
         self.shared
@@ -392,10 +412,6 @@ impl Worker {
     fn tick(&mut self) {
         let now = Instant::now();
         if let Some(session) = self.session.as_mut() {
-            self.shared.callbacks.store(
-                session.handle.stats().callbacks.load(Ordering::Relaxed),
-                Ordering::Relaxed,
-            );
             for event in session.handle.drain() {
                 if matches!(event, Event::PlayRejected(_)) {
                     self.shared.rejected_plays.fetch_add(1, Ordering::Relaxed);
@@ -453,6 +469,7 @@ impl Worker {
                     // A backend that never asked for the callback did not start a usable stream.
                     return self.open_failed(BackendError::Other);
                 };
+                let stats = Arc::clone(handle.stats());
                 self.session = Some(Session {
                     _stream: stream,
                     handle,
@@ -461,7 +478,7 @@ impl Worker {
                 self.attempt = 0;
                 self.last_default = self.backend.default_output_id();
                 self.shared.opens.fetch_add(1, Ordering::Relaxed);
-                self.shared.callbacks.store(0, Ordering::Relaxed);
+                self.shared.set_mixer_stats(Some(stats));
                 self.shared.set(EngineState::Running, Some(format));
             }
             Err(error) => self.open_failed(error),
@@ -470,6 +487,7 @@ impl Worker {
 
     fn open_failed(&mut self, error: BackendError) {
         self.session = None;
+        self.shared.set_mixer_stats(None);
         // Remember which device this failure was about, so that only a later *change* of the default output counts as a
         // reason to try again (otherwise the first periodic check would retry a failure that cannot be retried).
         self.last_default = self.backend.default_output_id();

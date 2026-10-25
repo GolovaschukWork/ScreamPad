@@ -5,8 +5,12 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use std::sync::Arc;
+
 use super::cancel::CancelToken;
 use super::error::StorageError;
+use crate::audio::backend::OutputFormat;
+use crate::audio::clip::Clip;
 use crate::domain::sound::{AudioFormat, ContentHash, NewSound, Sound, StorageKey};
 
 /// What the application knows about a file it is about to read.
@@ -68,6 +72,8 @@ pub trait MediaFs: Send + Sync {
     fn media_size(&self, key: &StorageKey) -> io::Result<Option<u64>>;
     /// Removes a managed file (clearing its read-only flag first). A missing file is not an error.
     fn remove_media(&self, key: &StorageKey) -> io::Result<()>;
+    /// Opens a managed file for reading. A missing file is `NotFound`; anything that is not a regular file is `InvalidInput`.
+    fn open_media(&self, key: &StorageKey) -> io::Result<File>;
 }
 
 /// What inspecting an audio file by content found.
@@ -123,6 +129,7 @@ pub struct MediaRef {
 }
 
 pub trait SoundRepository: Send + Sync {
+    fn find_by_id(&self, id: i64) -> Result<Option<Sound>, StorageError>;
     fn find_by_hash(&self, hash: &ContentHash) -> Result<Option<Sound>, StorageError>;
     /// Inserts atomically; an existing row with the same hash is returned as `Duplicate`.
     fn insert(&self, sound: &NewSound) -> Result<InsertOutcome, StorageError>;
@@ -139,4 +146,16 @@ pub trait Clock: Send + Sync {
 pub trait FilePicker: Send + Sync {
     /// Blocks until the user chooses a file or cancels (`None`). Call it from a blocking task.
     fn pick_audio_file(&self) -> Option<PathBuf>;
+}
+
+/// Decodes an audio file into a clip in the output device's format (decode, resample, fit channels). Slow and allocating:
+/// call it outside the audio callback.
+pub trait ClipDecoder: Send + Sync {
+    fn decode(
+        &self,
+        file: File,
+        target: OutputFormat,
+        limits: &ProbeLimits,
+        cancel: &CancelToken,
+    ) -> Result<Arc<Clip>, ProbeError>;
 }

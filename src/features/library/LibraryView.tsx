@@ -2,16 +2,27 @@ import { useTranslation } from "react-i18next";
 import { formatDuration } from "../../shared/format/duration";
 import type { AppError, SoundSummary } from "../../shared/ipc/bindings";
 import { errorText } from "../../shared/ipc/errors";
+import { AudioBanner } from "./AudioBanner";
+import { useAudio } from "./useAudio";
 import { useLibrary } from "./useLibrary";
 
 function failureText(t: ReturnType<typeof useTranslation>["t"], error: AppError | null): string {
   return error ? errorText(t, error) : t("errors.backendUnreachable");
 }
 
-function SoundItem({ sound }: { sound: SoundSummary }) {
+function SoundItem({ sound, onPlay }: { sound: SoundSummary; onPlay: (id: number) => void }) {
   const { t, i18n } = useTranslation();
+  const unavailable = sound.status !== "available";
   return (
     <li>
+      <button
+        type="button"
+        onClick={() => onPlay(sound.id)}
+        disabled={unavailable}
+        aria-label={t("sound.play", { name: sound.displayName })}
+      >
+        {t("sound.playShort")}
+      </button>{" "}
       <strong>{sound.displayName}</strong> · {sound.format.toUpperCase()} · {formatDuration(sound.durationMs, i18n.language)}
       {sound.status === "missing" && <em> · {t("sound.missing")}</em>}
       {sound.status === "damaged" && <em> · {t("sound.damaged")}</em>}
@@ -22,6 +33,7 @@ function SoundItem({ sound }: { sound: SoundSummary }) {
 export function LibraryView() {
   const { t } = useTranslation();
   const { list, importState, importSound } = useLibrary();
+  const { audio, problem, play, stopAll, retry } = useAudio();
   const importing = importState.status === "running";
 
   return (
@@ -40,6 +52,9 @@ export function LibraryView() {
       </p>
       <p role="alert">{importState.status === "error" && failureText(t, importState.error)}</p>
 
+      <AudioBanner state={audio} onRetry={() => void retry()} />
+      <p role="alert">{problem !== undefined && failureText(t, problem)}</p>
+
       {list.status === "loading" && <p role="status">{t("library.opening")}</p>}
       {list.status === "error" && <p role="alert">{failureText(t, list.error)}</p>}
       {list.status === "ready" &&
@@ -47,10 +62,15 @@ export function LibraryView() {
           <p>{t("library.empty")}</p>
         ) : (
           <>
-            <p>{t("library.count", { count: list.sounds.length })}</p>
+            <p>
+              {t("library.count", { count: list.sounds.length })}{" "}
+              <button type="button" onClick={() => void stopAll()}>
+                {t("sound.stopAll")}
+              </button>
+            </p>
             <ul aria-label={t("sound.list")}>
               {list.sounds.map((sound) => (
-                <SoundItem key={sound.id} sound={sound} />
+                <SoundItem key={sound.id} sound={sound} onPlay={(id) => void play(id)} />
               ))}
             </ul>
           </>
