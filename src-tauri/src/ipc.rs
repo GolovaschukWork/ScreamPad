@@ -15,6 +15,9 @@ pub fn builder<R: tauri::Runtime>() -> Builder<R> {
         commands::playback::play_sound,
         commands::playback::stop_all_sounds,
         commands::playback::audio_status,
-        commands::playback::retry_audio
+        commands::playback::retry_audio,
+        commands::settings::get_settings,
+        commands::settings::update_settings,
+        commands::settings::set_sound_options
     ])
 }

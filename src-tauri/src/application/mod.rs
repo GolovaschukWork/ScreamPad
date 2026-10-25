@@ -7,10 +7,13 @@ pub mod error;
 pub mod import;
 pub mod playback;
 pub mod ports;
+pub mod preferences;
 pub mod reconcile;
 
 #[cfg(test)]
 mod import_tests;
+#[cfg(test)]
+mod playback_modes_tests;
 #[cfg(test)]
 mod playback_tests;
 #[cfg(test)]

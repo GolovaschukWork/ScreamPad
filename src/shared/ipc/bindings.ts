@@ -17,14 +17,23 @@ export const commands = {
 	 *  cancelled the dialog. The webview never supplies a path, so it cannot make the app read an arbitrary file.
 	 */
 	importSound: () => typedError<ImportResult | null, AppError>(__TAURI_INVOKE("import_sound")),
-	/**  Plays a library sound. The first play of a sound decodes it, so the work runs on the blocking pool. */
-	playSound: (id: number) => typedError<null, AppError>(__TAURI_INVOKE("play_sound", { id })),
+	/**
+	 *  Triggers a library sound with its stored gain and play mode. The first play of a sound decodes it, so the work runs on
+	 *  the blocking pool.
+	 */
+	playSound: (id: number) => typedError<PlayResult, AppError>(__TAURI_INVOKE("play_sound", { id })),
 	/**  Stops every sound that is playing. */
 	stopAllSounds: () => typedError<null, AppError>(__TAURI_INVOKE("stop_all_sounds")),
 	/**  The state of the audio output, for the UI to show. */
 	audioStatus: () => typedError<AudioStatus_Serialize, AppError>(__TAURI_INVOKE("audio_status")),
 	/**  Asks a failed audio output to try again now. */
 	retryAudio: () => typedError<null, AppError>(__TAURI_INVOKE("retry_audio")),
+	/**  Reads the stored settings. A damaged settings row is reported as `storageCorrupt`, never replaced by defaults. */
+	getSettings: () => typedError<SettingsDto, AppError>(__TAURI_INVOKE("get_settings")),
+	/**  Stores the language and the master volume, and applies the volume to the audio output. */
+	updateSettings: (language: string, masterGainMillibels: number) => typedError<SettingsDto, AppError>(__TAURI_INVOKE("update_settings", { language, masterGainMillibels })),
+	/**  Stores a sound's gain trim and play mode. */
+	setSoundOptions: (id: number, gainMillibels: number, playMode: PlayModeDto) => typedError<SoundSummary, AppError>(__TAURI_INVOKE("set_sound_options", { id, gainMillibels, playMode })),
 };
 
 /* Types */
@@ -37,6 +46,8 @@ export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kin
 { kind: "audioUnavailable" } | 
 /**  The audio engine is busy or did not answer in time. */
 { kind: "audioBusy" } | { kind: "soundNotFound" } | 
+/**  A setting or sound option is outside its range or names an unsupported choice. */
+{ kind: "invalidSetting" } | 
 /**  The sound is too long to be decoded into memory for playback. */
 { kind: "playbackClipTooLong" } | { kind: "playbackDecodeTimeout" } | 
 /**  The sound's managed file is gone. The database row is kept. */
@@ -85,6 +96,20 @@ export type LibraryStats = {
 	schemaVersion: number,
 };
 
+/**  What triggering a sound does while it is already playing. */
+export type PlayModeDto = "overlap" | "restart" | "ignore" | "toggle";
+
+/**  What triggering a sound did. */
+export type PlayResult = "started" | "restarted" | "stopped" | "ignored";
+
+/**  Application settings as the UI sees them. */
+export type SettingsDto = {
+	/**  `system` or a supported language tag such as `en` or `uk`. */
+	language: string,
+	/**  Master volume in millibels (1/100 dB), -6000..=0. */
+	masterGainMillibels: number,
+};
+
 /**  Whether a sound's managed file can be used, as of the last reconciliation. */
 export type SoundStatus = "available" | "missing" | "damaged";
 
@@ -100,6 +125,9 @@ export type SoundSummary = {
 	/**  Exact up to 2^53 bytes; larger values are rejected as an internal error. */
 	sizeBytes: number | null,
 	status: SoundStatus,
+	/**  Gain trim in millibels (1/100 dB), -6000..=600. */
+	gainMillibels: number,
+	playMode: PlayModeDto,
 };
 
 /* Tauri Specta runtime */

@@ -17,7 +17,7 @@ use super::backend::{
     AudioBackend, BackendError, EventSink, OutputFormat, RunningStream, StreamEvent,
 };
 use super::clip::Clip;
-use super::mixer::{ControlError, Event, MixerHandle, Stats, mixer};
+use super::mixer::{ControlError, Event, MixerHandle, Stats, VoiceId, mixer};
 
 const MESSAGE_CAPACITY: usize = 64;
 /// How long a caller waits for the engine thread to answer.
@@ -93,9 +93,22 @@ enum Message {
     Play {
         clip: Arc<Clip>,
         gain: f32,
+        tag: Option<VoiceTag>,
         reply: Sender<Result<(), EngineError>>,
     },
     StopAll {
+        reply: Sender<Result<(), EngineError>>,
+    },
+    StopTag {
+        tag: VoiceTag,
+        reply: Sender<Result<(), EngineError>>,
+    },
+    Playing {
+        tag: VoiceTag,
+        reply: Sender<Result<bool, EngineError>>,
+    },
+    SetMasterGain {
+        gain: f32,
         reply: Sender<Result<(), EngineError>>,
     },
     Retry,
@@ -199,11 +212,47 @@ impl AudioEngine {
 
     /// Starts `clip` at `gain` (1.0 is unity). The clip must match the current stream format.
     pub fn play(&self, clip: Arc<Clip>, gain: f32) -> Result<(), EngineError> {
-        self.request(|reply| Message::Play { clip, gain, reply })
+        self.request(|reply| Message::Play {
+            clip,
+            gain,
+            tag: None,
+            reply,
+        })
+    }
+
+    /// Like `play`, and remembers that the voice belongs to `tag` (the caller's own identifier, such as a sound id), so
+    /// that `playing` and `stop_tag` can find it.
+    pub fn play_tagged(
+        &self,
+        clip: Arc<Clip>,
+        gain: f32,
+        tag: VoiceTag,
+    ) -> Result<(), EngineError> {
+        self.request(|reply| Message::Play {
+            clip,
+            gain,
+            tag: Some(tag),
+            reply,
+        })
     }
 
     pub fn stop_all(&self) -> Result<(), EngineError> {
         self.request(|reply| Message::StopAll { reply })
+    }
+
+    /// Stops every voice started with `tag`.
+    pub fn stop_tag(&self, tag: VoiceTag) -> Result<(), EngineError> {
+        self.request(|reply| Message::StopTag { tag, reply })
+    }
+
+    /// Whether a voice started with `tag` is still sounding. A voice that has been asked to stop no longer counts.
+    pub fn playing(&self, tag: VoiceTag) -> Result<bool, EngineError> {
+        self.request(|reply| Message::Playing { tag, reply })
+    }
+
+    /// Sets the linear master gain (1.0 is unity). It is kept across stream rebuilds, so a device change does not reset it.
+    pub fn set_master_gain(&self, gain: f32) -> Result<(), EngineError> {
+        self.request(|reply| Message::SetMasterGain { gain, reply })
     }
 
     /// Asks a `Failed` engine to try opening the stream again now.
@@ -213,10 +262,10 @@ impl AudioEngine {
             .map_err(|_| EngineError::Busy)
     }
 
-    fn request(
+    fn request<T>(
         &self,
-        build: impl FnOnce(Sender<Result<(), EngineError>>) -> Message,
-    ) -> Result<(), EngineError> {
+        build: impl FnOnce(Sender<Result<T, EngineError>>) -> Message,
+    ) -> Result<T, EngineError> {
         let (reply, answer) = channel();
         self.sender
             .try_send(build(reply))
@@ -251,11 +300,23 @@ impl Drop for AudioEngine {
     }
 }
 
+/// The caller's identifier for a group of voices (a sound id, for example).
+pub type VoiceTag = u64;
+
+/// A voice the engine has handed to the mixer and not yet seen finish.
+struct TrackedVoice {
+    id: VoiceId,
+    tag: Option<VoiceTag>,
+    /// Asked to stop; it may still sound for a few milliseconds while it fades out.
+    stopping: bool,
+}
+
 struct Session {
     // Held only so that dropping the session stops the stream.
     _stream: Box<dyn RunningStream>,
     handle: MixerHandle,
     format: OutputFormat,
+    voices: Vec<TrackedVoice>,
 }
 
 struct Worker {
@@ -271,6 +332,8 @@ struct Worker {
     retry_at: Option<Instant>,
     next_poll: Instant,
     last_default: Option<String>,
+    /// Linear master gain, applied to every stream that is opened.
+    master_gain: f32,
 }
 
 impl Worker {
@@ -291,6 +354,7 @@ impl Worker {
             retry_at: None,
             next_poll: Instant::now(),
             last_default: None,
+            master_gain: 1.0,
         }
     }
 
@@ -333,12 +397,39 @@ impl Worker {
 
     fn handle(&mut self, message: Message) {
         match message {
-            Message::Play { clip, gain, reply } => {
-                let _ = reply.send(self.play(clip, gain));
+            Message::Play {
+                clip,
+                gain,
+                tag,
+                reply,
+            } => {
+                let _ = reply.send(self.play(clip, gain, tag));
             }
             Message::StopAll { reply } => {
                 let result = match self.session.as_mut() {
-                    Some(session) => session.handle.stop_all().map_err(|_| EngineError::Busy),
+                    Some(session) => {
+                        for voice in &mut session.voices {
+                            voice.stopping = true;
+                        }
+                        session.handle.stop_all().map_err(|_| EngineError::Busy)
+                    }
+                    None => Ok(()),
+                };
+                let _ = reply.send(result);
+            }
+            Message::StopTag { tag, reply } => {
+                let _ = reply.send(self.stop_tag(tag));
+            }
+            Message::Playing { tag, reply } => {
+                let _ = reply.send(Ok(self.playing(tag)));
+            }
+            Message::SetMasterGain { gain, reply } => {
+                self.master_gain = gain;
+                let result = match self.session.as_mut() {
+                    Some(session) => session
+                        .handle
+                        .set_master_gain(gain)
+                        .map_err(|_| EngineError::Busy),
                     None => Ok(()),
                 };
                 let _ = reply.send(result);
@@ -366,21 +457,76 @@ impl Worker {
             .0
     }
 
-    fn play(&mut self, clip: Arc<Clip>, gain: f32) -> Result<(), EngineError> {
+    fn play(
+        &mut self,
+        clip: Arc<Clip>,
+        gain: f32,
+        tag: Option<VoiceTag>,
+    ) -> Result<(), EngineError> {
+        self.sync_voices();
         let session = self.session.as_mut().ok_or(EngineError::Unavailable)?;
         let matches_stream = clip.channels() == session.format.channels
             && clip.sample_rate() == session.format.sample_rate;
         if !matches_stream {
             return Err(EngineError::FormatMismatch);
         }
-        session
+        let id = session
             .handle
             .play(clip, gain)
-            .map(|_| ())
             .map_err(|error| match error {
                 ControlError::Busy => EngineError::Busy,
                 ControlError::ChannelMismatch => EngineError::FormatMismatch,
-            })
+            })?;
+        session.voices.push(TrackedVoice {
+            id,
+            tag,
+            stopping: false,
+        });
+        Ok(())
+    }
+
+    fn stop_tag(&mut self, tag: VoiceTag) -> Result<(), EngineError> {
+        self.sync_voices();
+        let Some(session) = self.session.as_mut() else {
+            return Ok(());
+        };
+        let mut busy = false;
+        for voice in &mut session.voices {
+            if voice.tag == Some(tag) && !voice.stopping {
+                match session.handle.stop(voice.id) {
+                    Ok(()) => voice.stopping = true,
+                    Err(_) => busy = true,
+                }
+            }
+        }
+        if busy { Err(EngineError::Busy) } else { Ok(()) }
+    }
+
+    fn playing(&mut self, tag: VoiceTag) -> bool {
+        self.sync_voices();
+        self.session.as_ref().is_some_and(|session| {
+            session
+                .voices
+                .iter()
+                .any(|voice| voice.tag == Some(tag) && !voice.stopping)
+        })
+    }
+
+    /// Reads what the audio callback reported since the last call: frees finished clips, forgets finished voices and counts
+    /// rejected plays.
+    fn sync_voices(&mut self) {
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        for event in session.handle.drain() {
+            match event {
+                Event::VoiceFinished(id) => session.voices.retain(|voice| voice.id != id),
+                Event::PlayRejected(id) => {
+                    session.voices.retain(|voice| voice.id != id);
+                    self.shared.rejected_plays.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
     }
 
     fn stream_event(&mut self, event: StreamEvent) {
@@ -411,13 +557,7 @@ impl Worker {
 
     fn tick(&mut self) {
         let now = Instant::now();
-        if let Some(session) = self.session.as_mut() {
-            for event in session.handle.drain() {
-                if matches!(event, Event::PlayRejected(_)) {
-                    self.shared.rejected_plays.fetch_add(1, Ordering::Relaxed);
-                }
-            }
-        }
+        self.sync_voices();
         if self.retry_at.is_some_and(|at| at <= now) {
             self.open();
         }
@@ -470,10 +610,15 @@ impl Worker {
                     return self.open_failed(BackendError::Other);
                 };
                 let stats = Arc::clone(handle.stats());
+                let mut handle = handle;
+                // A new stream starts at unity; the master gain the user chose must survive a device change. The queue is
+                // empty here, so this cannot be refused.
+                let _ = handle.set_master_gain(self.master_gain);
                 self.session = Some(Session {
                     _stream: stream,
                     handle,
                     format,
+                    voices: Vec::new(),
                 });
                 self.attempt = 0;
                 self.last_default = self.backend.default_output_id();

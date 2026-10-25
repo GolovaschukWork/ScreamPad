@@ -8,6 +8,7 @@ use crate::application::error::StorageError;
 use crate::application::import::{ImportLimits, ImportService};
 use crate::application::playback::{PlaybackLimits, PlaybackService};
 use crate::application::ports::FilePicker;
+use crate::application::preferences::PreferencesService;
 use crate::application::reconcile::{ORPHAN_GRACE, ReconcileReport, reconcile};
 use crate::audio::engine::{AudioEngine, EngineConfig};
 use crate::commands::error::AppError;
@@ -15,7 +16,9 @@ use crate::infrastructure::audio::cpal_backend::CpalBackend;
 use crate::infrastructure::media::decode::SymphoniaClipDecoder;
 use crate::infrastructure::media::fs::OsMediaFs;
 use crate::infrastructure::media::probe::SymphoniaProbe;
-use crate::infrastructure::sqlite::{Database, SqliteSoundRepository, migrations};
+use crate::infrastructure::sqlite::{
+    Database, SqliteSettingsRepository, SqliteSoundRepository, migrations,
+};
 use crate::infrastructure::system::SystemClock;
 
 /// File name of the library database inside the application data directory.
@@ -44,6 +47,7 @@ pub struct Library {
     pub files: Arc<OsMediaFs>,
     pub active: Arc<ActiveImports>,
     pub importer: Arc<ImportService>,
+    pub preferences: Arc<PreferencesService>,
     health: RwLock<Health>,
 }
 
@@ -52,6 +56,11 @@ impl Library {
         let files = Arc::new(OsMediaFs::open(root)?);
         let repository = Arc::new(SqliteSoundRepository::new(Arc::clone(&database)));
         let active = ActiveImports::new();
+        let preferences = Arc::new(PreferencesService::new(
+            repository.clone(),
+            Arc::new(SqliteSettingsRepository::new(Arc::clone(&database))),
+            Arc::new(SystemClock),
+        ));
         let importer = Arc::new(ImportService::new(
             files.clone(),
             Arc::new(SymphoniaProbe),
@@ -66,6 +75,7 @@ impl Library {
             files,
             active,
             importer,
+            preferences,
             health: RwLock::new(Health::default()),
         })
     }
@@ -163,13 +173,19 @@ impl PlaybackState {
                 Ok(engine) => engine,
                 Err(_) => return Self::Unavailable(AppError::Internal),
             };
-        Self::ready(PlaybackService::new(
+        let service = PlaybackService::new(
             library.repository.clone(),
             library.files.clone(),
             Arc::new(SymphoniaClipDecoder),
             Arc::new(engine),
             PlaybackLimits::provisional(),
-        ))
+        );
+        // Restore the saved master volume. If the settings cannot be read the output stays at unity; the UI reports the
+        // damaged settings when it asks for them.
+        if let Ok(settings) = library.preferences.settings() {
+            let _ = service.apply_master_gain(settings.master_gain);
+        }
+        Self::ready(service)
     }
 
     pub fn ready(service: PlaybackService) -> Self {

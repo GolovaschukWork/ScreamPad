@@ -168,7 +168,7 @@ fn an_imported_sound_is_decoded_and_heard_through_the_stream() {
     let sound = harness.import("tone.wav");
     let service = harness.service(harness.counting(), limits());
 
-    service.play(sound.id, 1.0).expect("play");
+    service.play(sound.id).expect("play");
     let heard = harness.pump_until_sound();
     assert!(heard.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
     assert!(
@@ -190,7 +190,7 @@ fn triggering_a_sound_again_does_not_decode_it_again() {
     let service = harness.service(decoder.clone(), limits());
 
     for _ in 0..40 {
-        service.play(sound.id, 1.0).expect("play");
+        service.play(sound.id).expect("play");
         harness.shared.pump(512);
     }
     assert_eq!(
@@ -207,7 +207,7 @@ fn a_device_format_change_makes_the_next_play_decode_for_the_new_format() {
     let sound = harness.import("tone.wav");
     let decoder = harness.counting();
     let service = harness.service(decoder.clone(), limits());
-    service.play(sound.id, 1.0).expect("play on stereo");
+    service.play(sound.id).expect("play on stereo");
 
     harness.shared.set_default_format(MONO_44K);
     harness.shared.emit(StreamEvent::Invalidated);
@@ -215,7 +215,7 @@ fn a_device_format_change_makes_the_next_play_decode_for_the_new_format() {
         harness.engine.snapshot().format == Some(MONO_44K)
     });
 
-    service.play(sound.id, 1.0).expect("play on mono");
+    service.play(sound.id).expect("play on mono");
     assert_eq!(decoder.calls.load(Ordering::SeqCst), 2);
     let heard = harness.pump_until_sound();
     assert_eq!(heard.len(), 256, "one channel per frame");
@@ -236,7 +236,7 @@ fn a_device_switch_between_decoding_and_playing_is_handled_by_decoding_again() {
     let service = harness.service(decoder.clone(), limits());
 
     service
-        .play(sound.id, 1.0)
+        .play(sound.id)
         .expect("the retry succeeds on the new format");
     assert_eq!(
         decoder.calls.load(Ordering::SeqCst),
@@ -251,10 +251,7 @@ fn an_unknown_sound_is_reported() {
     let harness = Harness::new();
     harness.wait_running();
     let service = harness.service(harness.counting(), limits());
-    assert_eq!(
-        service.play(424_242, 1.0),
-        Err(PlaybackError::SoundNotFound)
-    );
+    assert_eq!(service.play(424_242), Err(PlaybackError::SoundNotFound));
 }
 
 #[test]
@@ -265,10 +262,7 @@ fn a_missing_file_is_reported_and_nothing_is_played() {
     harness.tamper(&sound, |path| fs::remove_file(path).expect("remove"));
     let service = harness.service(harness.counting(), limits());
 
-    assert_eq!(
-        service.play(sound.id, 1.0),
-        Err(PlaybackError::MediaMissing)
-    );
+    assert_eq!(service.play(sound.id), Err(PlaybackError::MediaMissing));
     assert_eq!(harness.shared.pump(64).expect("stream"), vec![0.0; 128]);
 }
 
@@ -286,10 +280,7 @@ fn a_file_changed_in_place_is_refused_by_its_hash_even_when_the_size_is_the_same
     let decoder = harness.counting();
     let service = harness.service(decoder.clone(), limits());
 
-    assert_eq!(
-        service.play(sound.id, 1.0),
-        Err(PlaybackError::MediaCorrupt)
-    );
+    assert_eq!(service.play(sound.id), Err(PlaybackError::MediaCorrupt));
     assert_eq!(
         decoder.calls.load(Ordering::SeqCst),
         0,
@@ -311,10 +302,7 @@ fn a_file_with_a_different_size_is_refused() {
             .expect("truncate")
     });
     let service = harness.service(harness.counting(), limits());
-    assert_eq!(
-        service.play(sound.id, 1.0),
-        Err(PlaybackError::MediaCorrupt)
-    );
+    assert_eq!(service.play(sound.id), Err(PlaybackError::MediaCorrupt));
 }
 
 #[cfg(unix)]
@@ -329,10 +317,7 @@ fn a_link_planted_where_a_managed_file_should_be_is_refused() {
         std::os::unix::fs::symlink(&decoy, path).expect("symlink");
     });
     let service = harness.service(harness.counting(), limits());
-    assert_eq!(
-        service.play(sound.id, 1.0),
-        Err(PlaybackError::MediaCorrupt)
-    );
+    assert_eq!(service.play(sound.id), Err(PlaybackError::MediaCorrupt));
 }
 
 #[test]
@@ -346,9 +331,7 @@ fn clip_length_and_decode_time_are_limited() {
         ..limits()
     };
     assert_eq!(
-        harness
-            .service(harness.counting(), short)
-            .play(sound.id, 1.0),
+        harness.service(harness.counting(), short).play(sound.id),
         Err(PlaybackError::ClipTooLong)
     );
 
@@ -358,9 +341,7 @@ fn clip_length_and_decode_time_are_limited() {
     };
     std::thread::sleep(Duration::from_millis(2));
     assert_eq!(
-        harness
-            .service(harness.counting(), no_time)
-            .play(sound.id, 1.0),
+        harness.service(harness.counting(), no_time).play(sound.id),
         Err(PlaybackError::DecodeTimeout)
     );
 }
@@ -376,10 +357,7 @@ fn without_a_running_output_play_reports_that_audio_is_unavailable() {
     });
     let sound = harness.import("tone.wav");
     let service = harness.service(harness.counting(), limits());
-    assert_eq!(
-        service.play(sound.id, 1.0),
-        Err(PlaybackError::AudioUnavailable)
-    );
+    assert_eq!(service.play(sound.id), Err(PlaybackError::AudioUnavailable));
     assert_eq!(
         service.stop_all(),
         Ok(()),
@@ -393,7 +371,7 @@ fn stop_all_silences_everything_that_is_playing() {
     harness.wait_running();
     let sound = harness.import("tone.flac");
     let service = harness.service(harness.counting(), limits());
-    service.play(sound.id, 1.0).expect("play");
+    service.play(sound.id).expect("play");
     harness.pump_until_sound();
 
     service.stop_all().expect("stop all");
@@ -419,7 +397,7 @@ fn a_tiny_cache_budget_still_plays_but_decodes_every_time() {
         },
     );
     for _ in 0..3 {
-        service.play(sound.id, 1.0).expect("play");
+        service.play(sound.id).expect("play");
         harness.shared.pump(512);
     }
     assert_eq!(decoder.calls.load(Ordering::SeqCst), 3);
@@ -437,7 +415,7 @@ fn many_threads_can_trigger_sounds_at_once() {
         .map(|n| {
             let service = Arc::clone(&service);
             let id = if n % 2 == 0 { first.id } else { second.id };
-            std::thread::spawn(move || (0..10).map(|_| service.play(id, 0.5)).collect::<Vec<_>>())
+            std::thread::spawn(move || (0..10).map(|_| service.play(id)).collect::<Vec<_>>())
         })
         .collect();
     for worker in workers {
@@ -458,9 +436,7 @@ fn importing_and_playing_share_the_same_library_without_interfering() {
     harness.wait_running();
     let service = harness.service(harness.counting(), limits());
     let sound = harness.import("tone.ogg");
-    service
-        .play(sound.id, 1.0)
-        .expect("play right after the import");
+    service.play(sound.id).expect("play right after the import");
     harness.pump_until_sound();
     harness.env.assert_consistent();
 }

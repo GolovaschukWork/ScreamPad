@@ -159,7 +159,7 @@ fn library_stats_reports_the_schema_and_the_row_count() {
         )),
     )
     .expect("command failed");
-    assert_eq!(empty, json!({ "soundCount": 0, "schemaVersion": 1 }));
+    assert_eq!(empty, json!({ "soundCount": 0, "schemaVersion": 2 }));
 
     let database = Database::open(&dir.join("library.db"), &migrations()).expect("reopen");
     database
@@ -180,7 +180,7 @@ fn library_stats_reports_the_schema_and_the_row_count() {
         )),
     )
     .expect("command failed");
-    assert_eq!(one, json!({ "soundCount": 1, "schemaVersion": 1 }));
+    assert_eq!(one, json!({ "soundCount": 1, "schemaVersion": 2 }));
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -281,6 +281,8 @@ fn list_sounds_reports_imported_sounds_with_their_status() {
     assert_eq!(sounds[0]["sampleRate"], 8000);
     assert_eq!(sounds[0]["durationMs"], 250);
     assert_eq!(sounds[0]["status"], "available");
+    assert_eq!(sounds[0]["gainMillibels"], 0);
+    assert_eq!(sounds[0]["playMode"], "overlap");
     assert_eq!(sounds[1]["format"], "flac");
     assert!(sounds[0]["sizeBytes"].is_number());
     let text = json.to_string();
@@ -639,7 +641,7 @@ fn play_sound_makes_an_imported_sound_audible_and_stop_all_sounds_silences_it() 
 
     let result =
         play(&storage, PlaybackState::Ready(Arc::clone(&service)), id).expect("play failed");
-    assert_eq!(result, Value::Null);
+    assert_eq!(result, json!("started"));
     wait_until("sound", || {
         pump(&render, 256).iter().any(|s| s.abs() > 0.01)
     });
@@ -700,7 +702,7 @@ fn play_sound_reports_unknown_missing_and_damaged_sounds_as_typed_errors() {
         PlaybackState::Ready(Arc::clone(&service)),
         u32::try_from(rows[1].id).expect("id"),
     );
-    assert_eq!(fine, Ok(Value::Null));
+    assert_eq!(fine, Ok(json!("started")));
     service.engine().shutdown();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -805,6 +807,281 @@ fn every_playback_failure_maps_to_a_typed_error_without_details() {
         (PlaybackError::Storage(StorageError::Full), "storageFull"),
     ];
     for (error, kind) in failures {
+        assert_eq!(
+            serde_json::to_value(AppError::from(&error)).expect("json"),
+            json!({ "kind": kind }),
+            "{error:?}"
+        );
+    }
+}
+
+// --- settings and sound options (ADR 0010) ----------------------------------------------------------------------------
+
+/// Calls a command that needs the library; the audio side is registered as unavailable, as it is when the engine cannot start.
+fn call_with_storage(cmd: &str, body: Value, state: &StorageState) -> Result<Value, Value> {
+    call(
+        cmd,
+        body,
+        Parts {
+            storage: Some(StorageState::Ready(state.library().expect("ready"))),
+            playback: Some(PlaybackState::Unavailable(AppError::Internal)),
+            ..Parts::default()
+        },
+    )
+}
+
+#[test]
+fn settings_default_then_persist_what_the_user_chose() {
+    let (dir, state) = library_with_two_sounds("settings");
+    assert_eq!(
+        call_with_storage("get_settings", json!({}), &state),
+        Ok(json!({ "language": "system", "masterGainMillibels": 0 }))
+    );
+    let saved = call_with_storage(
+        "update_settings",
+        json!({ "language": "uk", "masterGainMillibels": -1500 }),
+        &state,
+    );
+    assert_eq!(
+        saved,
+        Ok(json!({ "language": "uk", "masterGainMillibels": -1500 }))
+    );
+    assert_eq!(
+        call_with_storage("get_settings", json!({}), &state),
+        saved,
+        "reads back what was stored"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn invalid_settings_are_rejected_without_changing_anything() {
+    let (dir, state) = library_with_two_sounds("settings-invalid");
+    for (language, gain) in [
+        ("de", 0),
+        ("", 0),
+        ("UK", 0),
+        ("uk", 1),
+        ("uk", -6001),
+        ("uk", i32::MIN),
+        ("../x", 0),
+    ] {
+        assert_eq!(
+            call_with_storage(
+                "update_settings",
+                json!({ "language": language, "masterGainMillibels": gain }),
+                &state
+            ),
+            Err(json!({ "kind": "invalidSetting" })),
+            "{language:?} {gain}"
+        );
+    }
+    assert_eq!(
+        call_with_storage("get_settings", json!({}), &state),
+        Ok(json!({ "language": "system", "masterGainMillibels": 0 }))
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_missing_settings_row_is_reported_not_hidden() {
+    let (dir, state) = library_with_two_sounds("settings-missing");
+    state
+        .library()
+        .expect("ready")
+        .database
+        .with_writer(|c| Ok(c.execute("DELETE FROM app_settings", [])?))
+        .expect("delete");
+    assert_eq!(
+        call_with_storage("get_settings", json!({}), &state),
+        Err(json!({ "kind": "storageCorrupt" }))
+    );
+    assert_eq!(
+        call_with_storage(
+            "update_settings",
+            json!({ "language": "en", "masterGainMillibels": 0 }),
+            &state
+        ),
+        Err(json!({ "kind": "storageCorrupt" }))
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn updating_settings_applies_the_master_volume_to_the_running_output() {
+    let (dir, storage) = library_with_two_sounds("settings-master");
+    let (playback, render) = playback_for(&storage, None);
+    wait_running(&playback);
+    let service = playback.service().expect("ready");
+    let id = first_sound_id(&storage);
+
+    let louder = |gain: i32| {
+        let updated = call(
+            "update_settings",
+            json!({ "language": "system", "masterGainMillibels": gain }),
+            Parts {
+                storage: Some(StorageState::Ready(storage.library().expect("ready"))),
+                playback: Some(PlaybackState::Ready(Arc::clone(&service))),
+                ..Parts::default()
+            },
+        );
+        assert!(updated.is_ok(), "{updated:?}");
+        play(&storage, PlaybackState::Ready(Arc::clone(&service)), id).expect("play");
+        pump(&render, 300);
+        let peak = pump(&render, 256)
+            .iter()
+            .fold(0.0_f32, |p, s| p.max(s.abs()));
+        call(
+            "stop_all_sounds",
+            json!({}),
+            Parts {
+                playback: Some(PlaybackState::Ready(Arc::clone(&service))),
+                ..Parts::default()
+            },
+        )
+        .expect("stop");
+        wait_until("silence", || pump(&render, 512).iter().all(|s| *s == 0.0));
+        peak
+    };
+    let unity = louder(0);
+    let quiet = louder(-2000);
+    assert!(unity > 0.05, "{unity}");
+    assert!((quiet - unity * 0.1).abs() < 1e-3, "{quiet} vs {unity}");
+    service.engine().shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn settings_can_be_saved_while_audio_is_unavailable() {
+    let (dir, state) = library_with_two_sounds("settings-no-audio");
+    let saved = call(
+        "update_settings",
+        json!({ "language": "en", "masterGainMillibels": -300 }),
+        Parts {
+            storage: Some(StorageState::Ready(state.library().expect("ready"))),
+            playback: Some(PlaybackState::Unavailable(AppError::Internal)),
+            ..Parts::default()
+        },
+    );
+    assert_eq!(
+        saved,
+        Ok(json!({ "language": "en", "masterGainMillibels": -300 }))
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn sound_options_are_stored_validated_and_listed() {
+    let (dir, state) = library_with_two_sounds("options");
+    let id = first_sound_id(&state);
+    let saved = call_with_storage(
+        "set_sound_options",
+        json!({ "id": id, "gainMillibels": -600, "playMode": "toggle" }),
+        &state,
+    )
+    .expect("set");
+    assert_eq!(saved["gainMillibels"], -600);
+    assert_eq!(saved["playMode"], "toggle");
+    assert_eq!(saved["displayName"], "tone");
+
+    let listed = invoke(
+        "list_sounds",
+        Some(StorageState::Ready(state.library().expect("ready"))),
+    )
+    .expect("list");
+    assert_eq!(listed[0]["playMode"], "toggle");
+    assert_eq!(listed[0]["gainMillibels"], -600);
+    assert_eq!(
+        listed[1]["playMode"], "overlap",
+        "the other sound is untouched"
+    );
+
+    for gain in [601, -6001, i32::MAX] {
+        assert_eq!(
+            call_with_storage(
+                "set_sound_options",
+                json!({ "id": id, "gainMillibels": gain, "playMode": "overlap" }),
+                &state
+            ),
+            Err(json!({ "kind": "invalidSetting" })),
+            "{gain}"
+        );
+    }
+    assert_eq!(
+        call_with_storage(
+            "set_sound_options",
+            json!({ "id": 987_654, "gainMillibels": 0, "playMode": "overlap" }),
+            &state
+        ),
+        Err(json!({ "kind": "soundNotFound" }))
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_unknown_play_mode_never_reaches_the_service() {
+    let (dir, state) = library_with_two_sounds("options-mode");
+    let id = first_sound_id(&state);
+    for mode in ["loop", "OVERLAP", "", "restart "] {
+        let refused = call_with_storage(
+            "set_sound_options",
+            json!({ "id": id, "gainMillibels": 0, "playMode": mode }),
+            &state,
+        );
+        assert!(
+            refused.is_err(),
+            "{mode:?} must not be accepted: {refused:?}"
+        );
+    }
+    let listed = invoke(
+        "list_sounds",
+        Some(StorageState::Ready(state.library().expect("ready"))),
+    )
+    .expect("list");
+    assert_eq!(listed[0]["playMode"], "overlap");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn play_sound_reports_what_the_play_mode_did() {
+    let (dir, storage) = library_with_two_sounds("play-modes");
+    let (playback, _render) = playback_for(&storage, None);
+    wait_running(&playback);
+    let service = playback.service().expect("ready");
+    let id = first_sound_id(&storage);
+    call_with_storage(
+        "set_sound_options",
+        json!({ "id": id, "gainMillibels": 0, "playMode": "toggle" }),
+        &storage,
+    )
+    .expect("set");
+
+    let trigger = || play(&storage, PlaybackState::Ready(Arc::clone(&service)), id);
+    assert_eq!(trigger(), Ok(json!("started")));
+    assert_eq!(trigger(), Ok(json!("stopped")));
+    call_with_storage(
+        "set_sound_options",
+        json!({ "id": id, "gainMillibels": 0, "playMode": "ignore" }),
+        &storage,
+    )
+    .expect("set");
+    assert_eq!(trigger(), Ok(json!("started")));
+    assert_eq!(trigger(), Ok(json!("ignored")));
+    service.engine().shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn preference_failures_map_to_typed_errors() {
+    use soundboard_desktop_lib::application::preferences::PreferencesError;
+    for (error, kind) in [
+        (PreferencesError::InvalidValue, "invalidSetting"),
+        (PreferencesError::SoundNotFound, "soundNotFound"),
+        (
+            PreferencesError::Storage(StorageError::Corrupt),
+            "storageCorrupt",
+        ),
+    ] {
         assert_eq!(
             serde_json::to_value(AppError::from(&error)).expect("json"),
             json!({ "kind": kind }),

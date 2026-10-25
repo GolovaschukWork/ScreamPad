@@ -3,6 +3,7 @@ use specta::Type;
 use tauri::State;
 
 use super::error::AppError;
+use crate::application::playback::PlayOutcome;
 use crate::audio::engine::{EngineState, FailureReason};
 use crate::state::{MediaStatus, PlaybackState, StorageState};
 
@@ -36,14 +37,36 @@ pub struct AudioStatus {
     pub channels: Option<u16>,
 }
 
-/// Plays a library sound. The first play of a sound decodes it, so the work runs on the blocking pool.
+/// What triggering a sound did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlayResult {
+    Started,
+    Restarted,
+    Stopped,
+    Ignored,
+}
+
+impl From<PlayOutcome> for PlayResult {
+    fn from(outcome: PlayOutcome) -> Self {
+        match outcome {
+            PlayOutcome::Started => Self::Started,
+            PlayOutcome::Restarted => Self::Restarted,
+            PlayOutcome::Stopped => Self::Stopped,
+            PlayOutcome::Ignored => Self::Ignored,
+        }
+    }
+}
+
+/// Triggers a library sound with its stored gain and play mode. The first play of a sound decodes it, so the work runs on
+/// the blocking pool.
 #[tauri::command]
 #[specta::specta]
 pub async fn play_sound(
     storage: State<'_, StorageState>,
     playback: State<'_, PlaybackState>,
     id: u32,
-) -> Result<(), AppError> {
+) -> Result<PlayResult, AppError> {
     let library = storage.library()?;
     // The last reconciliation already knows about a missing or damaged file; answer without touching the disk.
     match library.status_of(i64::from(id)) {
@@ -52,9 +75,10 @@ pub async fn play_sound(
         MediaStatus::Damaged => return Err(AppError::MediaCorrupt),
     }
     let service = playback.service()?;
-    tauri::async_runtime::spawn_blocking(move || service.play(i64::from(id), 1.0))
+    tauri::async_runtime::spawn_blocking(move || service.play(i64::from(id)))
         .await
         .map_err(|_| AppError::Internal)?
+        .map(PlayResult::from)
         .map_err(AppError::from)
 }
 
