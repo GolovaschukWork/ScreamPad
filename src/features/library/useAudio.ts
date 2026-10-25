@@ -56,7 +56,8 @@ export function useAudio() {
 
   const play = useCallback((id: number) => run(() => commands.playSound(id)), [run]);
   const stopAll = useCallback(() => run(() => commands.stopAllSounds()), [run]);
+  const stop = useCallback((id: number) => run(() => commands.stopSound(id)), [run]);
   const retry = useCallback(() => run(() => commands.retryAudio()), [run]);
 
-  return { audio, problem, play, stopAll, retry };
+  return { audio, problem, play, stop, stopAll, retry };
 }

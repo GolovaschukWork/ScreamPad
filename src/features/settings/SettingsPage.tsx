@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { commands, type AppError, type AppInfo, type ThemeDto } from "../../shared/ipc/bindings";
 import { errorText } from "../../shared/ipc/errors";
 import { useTheme } from "../../shared/theme/ThemeProvider";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
-import { DbSlider } from "./DbSlider";
+import { ChoiceSelect, type ChoiceOption } from "@/shared/components/ChoiceSelect";
+import { DbSlider } from "@/shared/components/DbSlider";
 import { SettingsRow, SettingsSection } from "./SettingsSection";
 import { useSettings } from "./useSettings";
 
@@ -13,41 +13,6 @@ const MASTER_MIN_MILLIBELS = -6000;
 const MASTER_MAX_MILLIBELS = 0;
 const THEMES: readonly ThemeDto[] = ["system", "dark", "light"];
 const LANGUAGES = ["system", "en", "uk"] as const;
-
-type SelectOption = { value: string; label: string };
-
-function ChoiceSelect({
-  id,
-  value,
-  options,
-  onChange,
-}: {
-  id: string;
-  value: string;
-  options: SelectOption[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <Select
-      value={value}
-      items={options}
-      onValueChange={(next) => {
-        if (typeof next === "string") onChange(next);
-      }}
-    >
-      <SelectTrigger id={id} className="min-w-44">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
 
 function useAppInfo(): AppInfo | null | undefined {
   // `undefined` while loading, `null` when the information cannot be read.
@@ -74,7 +39,7 @@ export function SettingsPage() {
   const themeId = useId();
 
   const failureText = (error: AppError | null) => (error ? errorText(t, error) : t("errors.backendUnreachable"));
-  const languageOptions: SelectOption[] = LANGUAGES.map((code) => ({
+  const languageOptions: ChoiceOption[] = LANGUAGES.map((code) => ({
     value: code,
     label: {
       system: t("settings.languageSystem"),
@@ -82,7 +47,7 @@ export function SettingsPage() {
       uk: t("settings.languageUk"),
     }[code],
   }));
-  const themeOptions: SelectOption[] = THEMES.map((theme) => ({
+  const themeOptions: ChoiceOption[] = THEMES.map((theme) => ({
     value: theme,
     label: { system: t("settings.themeSystem"), dark: t("settings.themeDark"), light: t("settings.themeLight") }[theme],
   }));

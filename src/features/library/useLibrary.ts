@@ -7,15 +7,15 @@ export type ListState =
   // `null` means the call itself failed (for example outside the desktop shell), not a typed backend error.
   | { status: "error"; error: AppError | null };
 
-export type ImportState =
-  | { status: "idle" }
-  | { status: "running" }
-  | { status: "done"; name: string; alreadyInLibrary: boolean }
-  | { status: "error"; error: AppError | null };
+/** What an import attempt came to. */
+export type ImportResult =
+  | { kind: "cancelled" }
+  | { kind: "done"; name: string; alreadyInLibrary: boolean }
+  | { kind: "error"; error: AppError | null };
 
 export function useLibrary() {
   const [list, setList] = useState<ListState>({ status: "loading" });
-  const [importState, setImportState] = useState<ImportState>({ status: "idle" });
+  const [importing, setImporting] = useState(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -41,28 +41,25 @@ export function useLibrary() {
     void refresh();
   }, [refresh]);
 
-  const importSound = useCallback(async () => {
-    setImportState({ status: "running" });
+  /** Retries loading after a failure, showing the loading state again. */
+  const reload = useCallback(async () => {
+    setList({ status: "loading" });
+    await refresh();
+  }, [refresh]);
+
+  const importSound = useCallback(async (): Promise<ImportResult> => {
+    setImporting(true);
     try {
       const result = await commands.importSound();
-      if (!mounted.current) return;
-      if (result.status === "error") {
-        setImportState({ status: "error", error: result.error });
-        return;
-      }
-      if (result.data === null) {
-        // The user closed the dialog without choosing a file.
-        setImportState({ status: "idle" });
-        return;
-      }
-      setImportState({
-        status: "done",
-        name: result.data.sound.displayName,
-        alreadyInLibrary: result.data.alreadyInLibrary,
-      });
+      if (result.status === "error") return { kind: "error", error: result.error };
+      // The user closed the dialog without choosing a file.
+      if (result.data === null) return { kind: "cancelled" };
       await refresh();
+      return { kind: "done", name: result.data.sound.displayName, alreadyInLibrary: result.data.alreadyInLibrary };
     } catch {
-      if (mounted.current) setImportState({ status: "error", error: null });
+      return { kind: "error", error: null };
+    } finally {
+      if (mounted.current) setImporting(false);
     }
   }, [refresh]);
 
@@ -86,5 +83,5 @@ export function useLibrary() {
     [],
   );
 
-  return { list, importState, importSound, setOptions };
+  return { list, importing, importSound, reload, setOptions };
 }
