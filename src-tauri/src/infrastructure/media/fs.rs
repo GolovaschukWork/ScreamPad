@@ -259,20 +259,35 @@ fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
-/// Flushes the published file and its directory entry as far as the platform allows.
+/// Flushes the published file and its directory entry as far as the platform allows (ADR 0007, "Durability").
 ///
-/// - Unix and macOS: flush the file again through a fresh handle (cheap, nothing is dirty), then `fsync` the containing
-///   directory so the new directory entry is on stable storage. macOS uses `F_FULLFSYNC` for both through `sync_all`.
+/// - macOS: `File::sync_all` issues `fcntl(F_FULLFSYNC)` (confirmed in the Rust standard library), which asks the drive to
+///   flush its own cache; plain `fsync` would not. The containing directory is flushed the same way.
+/// - Linux and other Unix: `fsync` on the file and on the directory.
 /// - Windows: directories cannot be opened through the standard library, so the file is reopened for writing and flushed
-///   with `FlushFileBuffers`; NTFS journals the rename. Power-loss behavior is not verified (ADR 0007).
+///   with `FlushFileBuffers`, which Microsoft documents as the way to commit to disk. `MOVEFILE_WRITE_THROUGH` is documented
+///   only for moves done as copy-and-delete, so it is not relied on. NTFS journals the rename; behavior after a power loss
+///   is not verified.
 fn make_move_durable(file: &Path, directory: &Path) -> io::Result<()> {
     OpenOptions::new().write(true).open(file)?.sync_all()?;
     sync_directory(directory)
 }
 
+/// A file system that cannot flush a directory (some network, FAT-like or external volumes) cannot be made more durable
+/// by failing the import, so that one case is tolerated; any other error is real.
 #[cfg(unix)]
 fn sync_directory(directory: &Path) -> io::Result<()> {
-    File::open(directory)?.sync_all()
+    match File::open(directory)?.sync_all() {
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::Unsupported | io::ErrorKind::InvalidInput
+            ) =>
+        {
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 #[cfg(not(unix))]

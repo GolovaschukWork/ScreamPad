@@ -13,6 +13,22 @@
     "storageConstraint": "The library rejected the change because it conflicts with existing data.",
     "storageIo": "The library storage is not accessible.",
     "internal": "Something went wrong inside the application.",
-    "backendUnreachable": "Could not reach the application backend."
+    "backendUnreachable": "Could not reach the application backend.",
+    "importBusy": "Another import is already running. Please wait for it to finish.",
+    "importCancelled": "The import was cancelled.",
+    "importSourceUnreadable": "The selected file could not be opened. Check that it still exists and that ScreamPad is allowed to read it.",
+    "importSourceNotRegularFile": "The selection is not a regular file.",
+    "importSourceChanged": "The file changed while it was being imported. Try again once nothing is writing to it.",
+    "importEmpty": "The file is empty.",
+    "importTooLarge": "The file is too large to import.",
+    "importStagingQuotaExceeded": "There is not enough temporary import space right now. Try again later.",
+    "importDiskFull": "The disk is full, so the file could not be imported.",
+    "importUnsupportedFormat": "This is not a supported audio file.",
+    "importCorrupt": "The audio file is damaged or incomplete and could not be imported.",
+    "importTooLong": "The audio is too long to import.",
+    "importDecodeTimeout": "Checking the audio took too long, so the import was stopped.",
+    "libraryInconsistent": "The library already holds a different file where this sound would be stored. Nothing was changed.",
+    "mediaMissing": "The file of this sound is missing from the library.",
+    "mediaCorrupt": "The file of this sound does not match what was imported and may be damaged."
   }
 }

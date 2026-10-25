@@ -14,8 +14,11 @@ use tauri::test::{
 };
 use tauri::webview::InvokeRequest;
 
+use soundboard_desktop_lib::application::cancel::CancelToken;
+use soundboard_desktop_lib::application::error::StorageError;
+use soundboard_desktop_lib::application::import::{ImportError, ImportOutcome};
 use soundboard_desktop_lib::commands::error::AppError;
-use soundboard_desktop_lib::infrastructure::sqlite::{Database, StorageError, migrations};
+use soundboard_desktop_lib::infrastructure::sqlite::{Database, migrations};
 use soundboard_desktop_lib::ipc::builder;
 use soundboard_desktop_lib::state::StorageState;
 
@@ -85,7 +88,10 @@ fn library_stats_reports_the_schema_and_the_row_count() {
     let database = Database::open(&dir.join("library.db"), &migrations()).expect("open");
     let empty = invoke(
         "library_stats",
-        Some(StorageState::Ready(Arc::new(database))),
+        Some(StorageState::ready(
+            Arc::new(database),
+            &dir.join("library"),
+        )),
     )
     .expect("command failed");
     assert_eq!(empty, json!({ "soundCount": 0, "schemaVersion": 1 }));
@@ -103,7 +109,10 @@ fn library_stats_reports_the_schema_and_the_row_count() {
         .expect("insert");
     let one = invoke(
         "library_stats",
-        Some(StorageState::Ready(Arc::new(database))),
+        Some(StorageState::ready(
+            Arc::new(database),
+            &dir.join("library"),
+        )),
     )
     .expect("command failed");
     assert_eq!(one, json!({ "soundCount": 1, "schemaVersion": 1 }));
@@ -169,5 +178,156 @@ fn error_details_and_absolute_paths_never_reach_the_ui() {
             assert!(!json.contains(leak), "{json} leaks {leak}");
         }
         assert!(json.starts_with("{\"kind\":"), "{json}");
+    }
+}
+
+fn fixture(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!(
+        "{}/tests/fixtures/audio/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+}
+
+fn library_with_two_sounds(name: &str) -> (std::path::PathBuf, StorageState) {
+    let dir = temp_dir(name);
+    let database = Database::open(&dir.join("library.db"), &migrations()).expect("open");
+    let state = StorageState::ready(Arc::new(database), &dir.join("library"));
+    let library = state.library().expect("ready");
+    for fixture_name in ["tone.wav", "tone.flac"] {
+        let outcome = library
+            .importer
+            .import(&fixture(fixture_name), &CancelToken::new());
+        assert!(
+            matches!(outcome, Ok(ImportOutcome::Imported(_))),
+            "{outcome:?}"
+        );
+    }
+    (dir, state)
+}
+
+#[test]
+fn list_sounds_reports_imported_sounds_with_their_status() {
+    let (dir, state) = library_with_two_sounds("list");
+    let json = invoke("list_sounds", Some(state)).expect("command failed");
+    let sounds = json.as_array().expect("an array");
+    assert_eq!(sounds.len(), 2);
+    assert_eq!(sounds[0]["displayName"], "tone");
+    assert_eq!(sounds[0]["format"], "wav");
+    assert_eq!(sounds[0]["sampleRate"], 8000);
+    assert_eq!(sounds[0]["durationMs"], 250);
+    assert_eq!(sounds[0]["status"], "available");
+    assert_eq!(sounds[1]["format"], "flac");
+    assert!(sounds[0]["sizeBytes"].is_number());
+    let text = json.to_string();
+    for leak in ["/", "\\", "contentHash", "managedPath", "originalFileName"] {
+        assert!(
+            !text.contains(leak),
+            "the list must not expose {leak}: {text}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_missing_file_is_reported_as_media_missing_and_the_row_stays() {
+    let (dir, state) = library_with_two_sounds("missing");
+    let library = state.library().expect("ready");
+    let sounds = soundboard_desktop_lib::application::ports::SoundRepository::list(
+        library.repository.as_ref(),
+    )
+    .expect("rows");
+    let victim = &sounds[0];
+    let path = dir.join("library").join("media").join(victim.key.as_str());
+    let mut permissions = std::fs::metadata(&path).expect("meta").permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).expect("permissions");
+    std::fs::remove_file(&path).expect("remove the managed file");
+    library.reconcile().expect("reconcile");
+
+    let id = u32::try_from(victim.id).expect("small id");
+    let check = |state: StorageState, id: u32| {
+        let mut app = mock_builder()
+            .invoke_handler(builder::<MockRuntime>().invoke_handler())
+            .manage(state);
+        app = app.manage(());
+        let app = app.build(mock_context(noop_assets())).expect("app");
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("webview");
+        get_ipc_response(
+            &webview,
+            InvokeRequest {
+                cmd: "check_sound_media".into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: LOCAL_ORIGIN.parse().expect("valid url"),
+                body: InvokeBody::Json(json!({ "id": id })),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.to_string(),
+            },
+        )
+        .map(|body| body.deserialize::<Value>().expect("json"))
+    };
+    let library_state = StorageState::Ready(Arc::clone(&library));
+    assert_eq!(
+        check(library_state, id).expect_err("must be reported"),
+        json!({ "kind": "mediaMissing" })
+    );
+    assert_eq!(
+        check(
+            StorageState::Ready(Arc::clone(&library)),
+            u32::try_from(sounds[1].id).expect("id")
+        ),
+        Ok(Value::Null)
+    );
+
+    let listed = invoke("list_sounds", Some(StorageState::Ready(library))).expect("list");
+    assert_eq!(
+        listed.as_array().expect("array").len(),
+        2,
+        "the row is kept"
+    );
+    assert_eq!(listed[0]["status"], "missing");
+    assert_eq!(listed[1]["status"], "available");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn every_import_failure_maps_to_a_typed_error_without_details() {
+    let failures = [
+        (ImportError::Busy, "importBusy"),
+        (ImportError::Cancelled, "importCancelled"),
+        (ImportError::SourceUnreadable, "importSourceUnreadable"),
+        (
+            ImportError::SourceNotRegularFile,
+            "importSourceNotRegularFile",
+        ),
+        (ImportError::SourceChanged, "importSourceChanged"),
+        (ImportError::Empty, "importEmpty"),
+        (ImportError::TooLarge, "importTooLarge"),
+        (
+            ImportError::StagingQuotaExceeded,
+            "importStagingQuotaExceeded",
+        ),
+        (ImportError::DiskFull, "importDiskFull"),
+        (ImportError::UnsupportedFormat, "importUnsupportedFormat"),
+        (ImportError::Corrupt, "importCorrupt"),
+        (ImportError::TooLong, "importTooLong"),
+        (ImportError::DecodeTimeout, "importDecodeTimeout"),
+        (ImportError::LibraryInconsistent, "libraryInconsistent"),
+        (
+            ImportError::Io(std::io::ErrorKind::PermissionDenied),
+            "storageIo",
+        ),
+        (ImportError::Storage(StorageError::Busy), "storageBusy"),
+        (ImportError::Storage(StorageError::Full), "storageFull"),
+    ];
+    for (error, kind) in failures {
+        assert_eq!(
+            serde_json::to_value(AppError::from(&error)).expect("json"),
+            json!({ "kind": kind }),
+            "{error:?}"
+        );
     }
 }

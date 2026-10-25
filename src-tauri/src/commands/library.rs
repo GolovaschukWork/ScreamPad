@@ -3,8 +3,11 @@ use specta::Type;
 use tauri::State;
 
 use super::error::AppError;
-use crate::infrastructure::sqlite::{Database, StorageError};
-use crate::state::StorageState;
+use crate::application::error::StorageError;
+use crate::application::ports::SoundRepository;
+use crate::domain::sound::Sound;
+use crate::infrastructure::sqlite::Database;
+use crate::state::{MediaStatus, StorageState};
 
 /// Summary of the sound library.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
@@ -33,4 +36,87 @@ fn read_stats(database: &Database) -> Result<LibraryStats, StorageError> {
         sound_count: u32::try_from(count).unwrap_or(u32::MAX),
         schema_version: u32::try_from(version).unwrap_or(u32::MAX),
     })
+}
+
+/// Whether a sound's managed file can be used, as of the last reconciliation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SoundStatus {
+    Available,
+    Missing,
+    Damaged,
+}
+
+impl From<MediaStatus> for SoundStatus {
+    fn from(status: MediaStatus) -> Self {
+        match status {
+            MediaStatus::Available => Self::Available,
+            MediaStatus::Missing => Self::Missing,
+            MediaStatus::Damaged => Self::Damaged,
+        }
+    }
+}
+
+/// A sound as shown in the library list.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SoundSummary {
+    pub id: u32,
+    pub display_name: String,
+    /// Lowercase extension of the managed file, for example `wav`.
+    pub format: String,
+    pub duration_ms: u32,
+    pub sample_rate: u32,
+    pub channels: u16,
+    /// Exact up to 2^53 bytes; larger values are rejected as an internal error.
+    #[specta(type = f64)]
+    pub size_bytes: u64,
+    pub status: SoundStatus,
+}
+
+/// Largest integer a JSON number (an IEEE double) holds exactly.
+const MAX_EXACT_NUMBER: u64 = 1 << 53;
+
+fn summarize(sound: &Sound, status: MediaStatus) -> Result<SoundSummary, AppError> {
+    if sound.size_bytes > MAX_EXACT_NUMBER {
+        return Err(AppError::Internal);
+    }
+    Ok(SoundSummary {
+        id: u32::try_from(sound.id).map_err(|_| AppError::Internal)?,
+        display_name: sound.display_name.clone(),
+        format: sound.format.extension().to_owned(),
+        duration_ms: u32::try_from(sound.duration_ms).map_err(|_| AppError::Internal)?,
+        sample_rate: sound.sample_rate,
+        channels: sound.channels,
+        size_bytes: sound.size_bytes,
+        status: status.into(),
+    })
+}
+
+/// Lists the library. A sound whose file is missing or damaged is still listed, with its status.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_sounds(state: State<'_, StorageState>) -> Result<Vec<SoundSummary>, AppError> {
+    let library = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<SoundSummary>, AppError> {
+        let sounds = library.repository.list()?;
+        sounds
+            .iter()
+            .map(|sound| summarize(sound, library.status_of(sound.id)))
+            .collect()
+    })
+    .await
+    .map_err(|_| AppError::Internal)?
+}
+
+/// Checks that a sound's managed file is usable: `mediaMissing` or `mediaCorrupt` otherwise. The database row is never changed.
+#[tauri::command]
+#[specta::specta]
+pub async fn check_sound_media(state: State<'_, StorageState>, id: u32) -> Result<(), AppError> {
+    let library = state.library()?;
+    match library.status_of(i64::from(id)) {
+        MediaStatus::Available => Ok(()),
+        MediaStatus::Missing => Err(AppError::MediaMissing),
+        MediaStatus::Damaged => Err(AppError::MediaCorrupt),
+    }
 }
