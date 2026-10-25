@@ -1,7 +1,7 @@
 //! Content-based audio inspection with `symphonia`. The file name and extension are never consulted.
 
 use std::fs::File;
-use std::io;
+use std::io::{self, Seek};
 use std::time::Instant;
 
 use symphonia::core::audio::GenericAudioBufferRef;
@@ -16,6 +16,7 @@ use symphonia::core::formats::{FormatId, FormatOptions, FormatReader, TrackType}
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::MetadataOptions;
 
+use super::mp4_edit::{EditTrim, read_edit_trim};
 use crate::application::cancel::CancelToken;
 use crate::application::ports::{AudioInfo, AudioProbe, ProbeError, ProbeLimits};
 use crate::domain::sound::AudioFormat;
@@ -34,7 +35,9 @@ impl AudioProbe for SymphoniaProbe {
         let mut opened = open(file)?;
         // Decode everything: headers can lie about the length and a truncated file only shows up while decoding. Samples
         // are discarded packet by packet, so memory stays bounded; the frame count is the truth for the duration.
-        let frames = decode_all(&mut opened, limits, cancel, started, |_| {})?;
+        let decoded = decode_all(&mut opened, limits, cancel, started, |_| {})?;
+        // The duration is of the audio that will be heard: encoder delay and padding (MP4) are not part of it.
+        let (_, frames) = opened.playable_range(decoded);
         if frames == 0 {
             return Err(ProbeError::Invalid);
         }
@@ -58,10 +61,37 @@ pub(super) struct Opened {
     pub(super) format: AudioFormat,
     pub(super) sample_rate: u32,
     pub(super) channels: u16,
+    /// Encoder delay and padding to discard, when the container says so (MP4 edit list).
+    trim: Option<EditTrim>,
+}
+
+impl Opened {
+    /// Of `decoded` frames, how many to skip at the start and how many to keep after that.
+    pub(super) fn playable_range(&self, decoded: u64) -> (u64, u64) {
+        match self.trim {
+            Some(trim) if trim.delay < decoded => {
+                let after_delay = decoded - trim.delay;
+                (
+                    trim.delay,
+                    trim.playable
+                        .map_or(after_delay, |playable| playable.min(after_delay)),
+                )
+            }
+            _ => (0, decoded),
+        }
+    }
 }
 
 /// Recognizes the container from the bytes only (an empty hint) and prepares a decoder.
-pub(super) fn open(file: File) -> Result<Opened, ProbeError> {
+pub(super) fn open(mut file: File) -> Result<Opened, ProbeError> {
+    // symphonia parses the MP4 edit list but does not apply it, so the encoder delay is read separately. A clone shares the file
+    // position, so the file is rewound before the real probe.
+    let trim = file
+        .try_clone()
+        .ok()
+        .and_then(|mut copy| read_edit_trim(&mut copy).ok().flatten());
+    file.rewind()
+        .map_err(|error| ProbeError::Io(error.kind()))?;
     let stream = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
     let reader = symphonia::default::get_probe()
         .probe(
@@ -105,6 +135,8 @@ pub(super) fn open(file: File) -> Result<Opened, ProbeError> {
         format,
         sample_rate,
         channels,
+        // The delay is in units of the track's timescale, which is the sample rate for audio; anything else is not trusted.
+        trim: trim.filter(|trim| format == AudioFormat::M4a && trim.timescale == sample_rate),
     })
 }
 
@@ -226,6 +258,8 @@ mod tests {
     fn the_exact_duration_of_a_lossless_file_is_measured_by_decoding() {
         assert_eq!(probe("tone.wav").expect("wav").duration_ms, 250);
         assert_eq!(probe("tone.flac").expect("flac").duration_ms, 250);
+        // AAC: decoding yields 3072 frames, but only 2000 are real; the edit list says so.
+        assert_eq!(probe("tone.m4a").expect("m4a").duration_ms, 250);
     }
 
     #[test]

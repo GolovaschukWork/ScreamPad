@@ -459,7 +459,7 @@ impl Worker {
         });
         let mut handle_slot: Option<MixerHandle> = None;
         let mut make_render = |format: OutputFormat| {
-            let (mut mixer, handle) = mixer(format.channels);
+            let (mut mixer, handle) = mixer(format.channels, format.sample_rate);
             handle_slot = Some(handle);
             Box::new(move |out: &mut [f32]| mixer.render(out)) as super::backend::RenderFn
         };
