@@ -1,3 +1,5 @@
+//! Helpers shared by unit tests.
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -25,6 +27,25 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
+        // Managed files are read-only, which Windows refuses to delete: lift the flag everywhere first.
+        make_writable(&self.0);
         let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[allow(clippy::permissions_set_readonly_false)]
+fn make_writable(directory: &Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            make_writable(&path);
+        } else if let Ok(metadata) = std::fs::metadata(&path) {
+            let mut permissions = metadata.permissions();
+            permissions.set_readonly(false);
+            let _ = std::fs::set_permissions(&path, permissions);
+        }
     }
 }

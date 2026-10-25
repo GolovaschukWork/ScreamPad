@@ -5,8 +5,8 @@ use std::iter::once;
 use rusqlite::{Connection, params};
 use rusqlite_migration::{M, Migrations};
 
-use super::test_support::TempDir;
 use super::{Database, MIGRATIONS, StorageError, migrations};
+use crate::test_support::TempDir;
 
 const HASH_A: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const HASH_B: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";

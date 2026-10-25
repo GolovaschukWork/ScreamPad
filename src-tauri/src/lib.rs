@@ -1,7 +1,12 @@
+pub mod application;
 pub mod commands;
+pub mod domain;
 pub mod infrastructure;
 pub mod ipc;
 pub mod state;
+
+#[cfg(test)]
+mod test_support;
 
 use tauri::Manager;
 
