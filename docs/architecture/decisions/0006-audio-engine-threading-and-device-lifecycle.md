@@ -1,6 +1,6 @@
 # ADR 0006: Audio Engine Threading, Buffering, Callback Safety And Device Lifecycle
 
-- Status: Accepted (owner decisions of 2026-10-25: `cpal`, `rtrb 0.4.0`, `rubato 5.0.1`, `panic = unwind`); mixer and clip decoding implemented, device engine pending
+- Status: Accepted (owner decisions of 2026-10-25: `cpal`, `rtrb 0.4.0`, `rubato 5.0.1`, `panic = unwind`); mixer, clip decoding and the device engine implemented; playback commands and manual device verification pending
 - Date: 2026-10-25
 - Owner: TBD
 
@@ -139,6 +139,32 @@ IPC commands are the next step.
 - **Evidence:** 23 mixer tests with deterministic input; `tests/audio_realtime.rs` installs a counting global allocator and
   asserts **zero allocations and zero deallocations** inside `render` over 600 rounds that include rejections, stops and clips
   whose only owner is the voice. It was mutation-checked: allocating inside `render`, or dropping a clip there, makes it fail.
+
+## Implementation notes (device engine, 2026-10-25)
+Implemented in `audio/backend.rs`, `audio/engine.rs` and `infrastructure/audio/cpal_backend.rs`.
+
+- **One engine thread** owns the backend, the stream and the mixer's control handle. This merges the "engine control" and "audio
+  host" threads of the design: decoding happens in the caller, so the control work left (drain, poll, rebuild) fits the thread that
+  must own the stream anyway. The backend is created on that thread, so a non-`Send` platform stream never crosses threads.
+- **State machine:** `Starting`, `Running`, `Recovering { attempt }`, `Failed(reason)`, `Stopped`. Retryable open failures (no
+  device, busy) back off over a configurable list (production: 0.25, 0.5, 1, 2, 4 s) and then end in `Failed`; permission and
+  unsupported-format failures fail at once. `retry()` and a newly appearing default device recover a `Failed` engine.
+- **Stale events are ignored.** Every stream gets a generation number and every event carries it. Found by a load test: late error
+  callbacks of a replaced stream caused needless rebuild cascades. A burst of errors from one stream now causes one rebuild.
+- **A failure that cannot be retried stays failed.** Found by a test: the engine had not recorded which device a failure was about,
+  so the first periodic check saw a "new" default device and retried a permission failure. The identity is now recorded on failure.
+- **Default-device changes** are detected by an event hint and by polling the device identity (production: every second), because
+  `cpal` 0.18.2 does not report them uniformly across platforms.
+- **Sample format:** the engine mixes in `f32` and asks `cpal` for a float configuration; a device that offers none is
+  `Failed(Unsupported)`. Other sample formats are not converted yet.
+- **Counters** (xruns, device losses, opens, rejected plays, callbacks) are exposed in `EngineSnapshot`.
+- **Evidence:** 18 engine tests against a fake audio API (recovery with a different format, backoff, giving up, retry, permanent
+  failures, polling, bursts, stale events, release of finished clips, shutdown) stress-run 96 times, 16 in parallel, without a
+  failure; `tests/audio_device.rs` (ignored by default) ran on macOS arm64 against the real default output: 48 kHz, 2 channels,
+  94 callbacks, no xruns, no device loss.
+- **Not verified:** unplugging, switching the default device, sample-rate changes, sleep and wake, Bluetooth, and everything on
+  Windows 11 and Intel macOS. The manual checklist is `docs/engineering/audio-manual-checklist.md`. Latency, glitch rate and CPU
+  are not measured.
 
 ## Risks and decisions for the owner
 1. **Panic strategy (decided by the owner on 2026-10-25): keep the default `panic = "unwind"`.** The Tauri template's

@@ -11,15 +11,9 @@ use rubato::{Fft, FixedSync, Resampler};
 use super::probe::{decode_all, open};
 use crate::application::cancel::CancelToken;
 use crate::application::ports::{ProbeError, ProbeLimits};
+use crate::audio::backend::OutputFormat;
 use crate::audio::clip::Clip;
 use crate::audio::convert::remap_channels;
-
-/// The format the audio device runs at.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OutputFormat {
-    pub sample_rate: u32,
-    pub channels: u16,
-}
 
 /// Input chunk of the resampler, in frames. Any value works for whole-clip conversion; this keeps the filter state small.
 const RESAMPLE_CHUNK: usize = 1024;

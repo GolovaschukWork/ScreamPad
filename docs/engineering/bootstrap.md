@@ -91,3 +91,7 @@ rename. See ADR 0007 for the import order, durability and recovery rules. Test a
 `src-tauri/src/audio` holds the real-time mixer and the clip type; it knows nothing about devices, files or Tauri, so it is tested
 without hardware. `tests/audio_realtime.rs` asserts that `Mixer::render` never allocates or frees memory (ADR 0006). Clips are
 decoded and resampled to the device format outside the callback by `infrastructure::media::decode`.
+
+The device engine (`audio/engine.rs`, `infrastructure/audio/cpal_backend.rs`) keeps the output stream alive across device changes.
+`cargo test --test audio_device -- --ignored` runs it silently against the real default output on a machine with audio hardware;
+`docs/engineering/audio-manual-checklist.md` lists the manual checks CI cannot do.
