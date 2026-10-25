@@ -55,3 +55,10 @@ files to areas, so documentation, ADR and governance-only PRs skip the TypeScrip
 Frontend-only edits skip the native matrix; Rust-only edits skip the frontend job. The `ci-gate` job is the single status to
 require once branch protection is enabled (skipped jobs pass, failures and cancellations do not). CodeQL refreshes its `main`
 baseline when sources change on `main` and weekly. Superseded runs on the same ref are cancelled.
+
+## Typed IPC
+
+Commands are typed end to end with `tauri-specta` (ADR 0004). Register a command in `src-tauri/src/ipc.rs`, define its DTOs in
+`src-tauri/src/commands/` with `#[derive(specta::Type)]`, then run `pnpm ipc:export` to regenerate
+`src/shared/ipc/bindings.ts`. Never edit that file by hand: CI regenerates it and fails on any diff. 64-bit integers need an
+explicit mapping; specta refuses to export them otherwise.
