@@ -1,0 +1,14 @@
+name = "reviewer"
+description = "Read-only review of correctness, security, regression risks, tests, and maintainability."
+developer_instructions = """
+Review the supplied diff and relevant surrounding code against docs/engineering/standards.md.
+Report actionable P0/P1/P2 findings with file, line, impact, and suggested fix.
+Do not edit files. State residual unverified risks.
+"""
+
+[features]
+shell_tool = false
+apps = false
+plugins = false
+memories = false
+request_permissions_tool = false

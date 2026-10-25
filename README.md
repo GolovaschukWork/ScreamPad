@@ -1,18 +1,15 @@
-# Desktop soundboard — project governance starter
+# ScreamPad
 
-Product name: **ScreamPad** · License: **TBD**
+ScreamPad is a local-first desktop soundboard for Windows 11 x64 and macOS 14+ (arm64/x64). It uses Tauri 2, React, TypeScript, Rust, and SQLite. The product is under development; platform audio behavior and production distribution remain subject to the verification and release gates in `docs/engineering/`.
 
-This is the agreed **engineering governance kit**, not an application implementation. It contains Claude Code instructions, rules, agents, skills, permissions/hooks, architecture docs, ADRs, Git and release policies, templates, and bootstrap validation CI.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), [architecture](docs/architecture/overview.md), and the [Accepted ADRs](docs/architecture/decisions/README.md). The product license, publisher identity, domain, and production bundle identifier are still undecided. Do not publicly distribute a release before those decisions and the release gates are complete.
 
-See `docs/engineering/bootstrap.md` for application initialization. No license is granted by this repository until a license is selected; clarify before accepting outside contributions or publicly distributing the project.
+## AI development
 
-Product: premium local-first soundboard for Windows 11 x64 and macOS 14+ arm64/x64, with managed library, media import, non-destructive edit, user-installed virtual audio devices, microphone + sound mixing. Direct downloads from GitHub or a future website, not app stores.
+- Codex: `AGENTS.md`, `.agents/skills/`, and `.codex/`.
+- Claude Code: `CLAUDE.md` and `.claude/`.
+- Shared source of truth: `docs/engineering/standards.md`, `development-workflow.md`, `definition-of-done.md`, `git-policy.md`, and `release-policy.md`.
 
-- `CLAUDE.md`: short operational contract
-- `.claude/rules/`: language/security/testing/Git rules
-- `.claude/skills/`: reusable workflows
-- `.claude/agents/`: focused read-only helper agents
-- `.claude/settings.json`: guarded permission defaults and Bash hook
-- `docs/`: product and architecture decisions, engineering policies
+Start Codex from the repository root so it discovers `AGENTS.md` and repo skills. Use `$implement`, `$review`, `$verify`, `$adr`, or `$release` in a prompt as appropriate. The Architect, Reviewer, and Verifier custom roles are available to Codex for focused work; routine tasks need no delegation. See [Codex setup and permission limits](docs/engineering/codex.md).
 
-**Security note:** Claude hooks are defense in depth, not a sandbox. Review `.claude/settings.json` and commands before use. Real OS-level permissions and GitHub protection are required.
+Claude hooks do not run in Codex. Repository instructions describe required conduct; the Codex sandbox and GitHub branch protection provide separate technical controls.
