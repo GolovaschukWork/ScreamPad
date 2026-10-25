@@ -30,3 +30,9 @@ export function initI18n(preferred: readonly string[] = navigator.languages): vo
     document.documentElement.lang = next;
   });
 }
+
+/** Switches the interface to a stored language setting: `system` follows the system language, a tag selects that language. */
+export async function applyLanguage(setting: string, system: readonly string[] = navigator.languages): Promise<void> {
+  const language = setting === "system" ? resolveLanguage(system) : resolveLanguage([setting]);
+  await i18next.changeLanguage(language);
+}

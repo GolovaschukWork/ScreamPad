@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { commands, type AppError, type SoundSummary } from "../../shared/ipc/bindings";
+import { commands, type AppError, type PlayModeDto, type SoundSummary } from "../../shared/ipc/bindings";
 
 export type ListState =
   | { status: "loading" }
@@ -66,5 +66,25 @@ export function useLibrary() {
     }
   }, [refresh]);
 
-  return { list, importState, importSound };
+  const setOptions = useCallback(
+    async (id: number, gainMillibels: number, playMode: PlayModeDto): Promise<AppError | null | undefined> => {
+      try {
+        const result = await commands.setSoundOptions(id, gainMillibels, playMode);
+        if (result.status === "error") return result.error;
+        if (mounted.current) {
+          setList((current) =>
+            current.status === "ready"
+              ? { status: "ready", sounds: current.sounds.map((sound) => (sound.id === id ? result.data : sound)) }
+              : current,
+          );
+        }
+        return undefined;
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
+  return { list, importState, importSound, setOptions };
 }

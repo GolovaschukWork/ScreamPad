@@ -1,8 +1,10 @@
+import type { ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import { formatDuration } from "../../shared/format/duration";
 import type { AppError, SoundSummary } from "../../shared/ipc/bindings";
 import { errorText } from "../../shared/ipc/errors";
 import { AudioBanner } from "./AudioBanner";
+import { SoundOptions } from "./SoundOptions";
 import { useAudio } from "./useAudio";
 import { useLibrary } from "./useLibrary";
 
@@ -10,7 +12,9 @@ function failureText(t: ReturnType<typeof useTranslation>["t"], error: AppError 
   return error ? errorText(t, error) : t("errors.backendUnreachable");
 }
 
-function SoundItem({ sound, onPlay }: { sound: SoundSummary; onPlay: (id: number) => void }) {
+type SetOptions = ComponentProps<typeof SoundOptions>["onChange"];
+
+function SoundItem({ sound, onPlay, onOptions }: { sound: SoundSummary; onPlay: (id: number) => void; onOptions: SetOptions }) {
   const { t, i18n } = useTranslation();
   const unavailable = sound.status !== "available";
   return (
@@ -26,13 +30,14 @@ function SoundItem({ sound, onPlay }: { sound: SoundSummary; onPlay: (id: number
       <strong>{sound.displayName}</strong> · {sound.format.toUpperCase()} · {formatDuration(sound.durationMs, i18n.language)}
       {sound.status === "missing" && <em> · {t("sound.missing")}</em>}
       {sound.status === "damaged" && <em> · {t("sound.damaged")}</em>}
+      <SoundOptions sound={sound} onChange={onOptions} />
     </li>
   );
 }
 
 export function LibraryView() {
   const { t } = useTranslation();
-  const { list, importState, importSound } = useLibrary();
+  const { list, importState, importSound, setOptions } = useLibrary();
   const { audio, problem, play, stopAll, retry } = useAudio();
   const importing = importState.status === "running";
 
@@ -70,7 +75,7 @@ export function LibraryView() {
             </p>
             <ul aria-label={t("sound.list")}>
               {list.sounds.map((sound) => (
-                <SoundItem key={sound.id} sound={sound} onPlay={(id) => void play(id)} />
+                <SoundItem key={sound.id} sound={sound} onPlay={(id) => void play(id)} onOptions={setOptions} />
               ))}
             </ul>
           </>

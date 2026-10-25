@@ -16,7 +16,7 @@
     "tauri": "tauri",
     "ipc:export": "cargo test --manifest-path src-tauri/Cargo.toml export_bindings",
     "i18n:check": "node scripts/i18n/check-catalogs.mjs",
-    "test:scripts": "node --test scripts/i18n/i18n.test.mjs scripts/format/duration.test.mjs"
+    "test:scripts": "node --test scripts/i18n/i18n.test.mjs scripts/format/duration.test.mjs scripts/format/gain.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.4",
