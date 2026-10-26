@@ -12,6 +12,12 @@ BlackHole is already installed on the development Mac and works as a loopback en
 
 Apple describes distinct Developer ID Application and Developer ID Installer certificates, and notarization for software distributed outside the Mac App Store. The release policy also requires signing and notarization. A driver setup flow must account for installer consent, elevated installation, OS prompts, restart, device refresh, repair, upgrade, rollback and uninstall. None has been tested for ScreamPad. Do not silently run `sudo`, restart CoreAudio or change system default devices.
 
+### Local BlackHole build evidence (2026-10-26)
+
+The official BlackHole `v0.7.1` tag (`e2b22aaaba4e507a097131704bf96dabc004d9cf`) was cloned outside the ScreamPad repository. On Xcode 26.2/macOS 26.2 arm64, `xcodebuild -project BlackHole.xcodeproj -scheme BlackHole -configuration Release MACOSX_DEPLOYMENT_TARGET=14.0 CODE_SIGNING_ALLOWED=NO build` succeeded. The produced `BlackHole.driver` binary contains both `arm64` and `x86_64` slices. An initial build with its default macOS 10.10 deployment target also succeeded but emitted an Xcode warning that the target is below Xcode 26.2's supported range; overriding it to 14.0 removed that warning.
+
+This is an **unsigned, uninstalled local build** only. It does not establish that a ScreamPad installer can safely install, update, remove, sign or notarize it, that its bundle identity is ready for distribution, or that it routes audio in Discord. The source and build artifacts stayed under `/tmp`; no driver or package was added to ScreamPad. The upstream installer script embeds the publisher's signing identity and handles package signing/notarization, so it cannot be used unchanged as a ScreamPad release process.
+
 **Next macOS experiment:** compare a consent-based BlackHole package integration with a first-party Audio Server plug-in prototype built without installing it. Inspect input/output identity, packaging, signing, source/notice obligations and protocol. Installing a prototype into `/Library` requires a separately reviewed plan and explicit owner consent. Only then choose the component for production onboarding.
 
 ## Windows 11: processing the existing microphone
