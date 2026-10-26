@@ -1,0 +1,312 @@
+diff --git a/BlackHole.xcodeproj/project.pbxproj b/BlackHole.xcodeproj/project.pbxproj
+index 186e637..f21e658 100644
+--- a/BlackHole.xcodeproj/project.pbxproj
++++ b/BlackHole.xcodeproj/project.pbxproj
+@@ -15,7 +15,7 @@
+ 		3D8966422849C318002AB3F0 /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D7477EC157823CF00412279 /* CoreAudio.framework */; };
+ 		3D8966432849C318002AB3F0 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D7477AC1578168D00412279 /* CoreFoundation.framework */; };
+ 		3D8966462849C318002AB3F0 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 03FDCADB233FAE0500101681 /* LICENSE */; };
+-		3D8966472849C318002AB3F0 /* BlackHole.icns in Resources */ = {isa = PBXBuildFile; fileRef = 03FDCAD9233F235500101681 /* BlackHole.icns */; };
++		3D8966472849C318002AB3F0 /* ScreamPadAudio.icns in Resources */ = {isa = PBXBuildFile; fileRef = 03FDCAD9233F235500101681 /* ScreamPadAudio.icns */; };
+ 		3D8966482849C318002AB3F0 /* CHANGELOG.md in Resources */ = {isa = PBXBuildFile; fileRef = 039FF2572341B6E800400D7A /* CHANGELOG.md */; };
+ /* End PBXBuildFile section */
+ 
+@@ -33,7 +33,7 @@
+ 
+ /* Begin PBXFileReference section */
+ 		039FF2572341B6E800400D7A /* CHANGELOG.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = CHANGELOG.md; sourceTree = "<group>"; };
+-		03FDCAD9233F235500101681 /* BlackHole.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = BlackHole.icns; sourceTree = "<group>"; };
++		03FDCAD9233F235500101681 /* ScreamPadAudio.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = ScreamPadAudio.icns; sourceTree = "<group>"; };
+ 		03FDCADB233FAE0500101681 /* LICENSE */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+ 		2D616EF215B8C82500D598BD /* BlackHole.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = BlackHole.c; sourceTree = "<group>"; };
+ 		2D7477AC1578168D00412279 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
+@@ -50,7 +50,7 @@
+ 		3D88D48C285BBA5800629399 /* BlackHoleTests */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = BlackHoleTests; sourceTree = BUILT_PRODUCTS_DIR; };
+ 		3D88D48E285BBA5800629399 /* main.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
+ 		3D89662F2849BF1A002AB3F0 /* VERSION */ = {isa = PBXFileReference; lastKnownFileType = text; path = VERSION; sourceTree = "<group>"; };
+-		3D89664D2849C318002AB3F0 /* BlackHole.driver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BlackHole.driver; sourceTree = BUILT_PRODUCTS_DIR; };
++		3D89664D2849C318002AB3F0 /* ScreamPadAudio2ch.driver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScreamPadAudio2ch.driver; sourceTree = BUILT_PRODUCTS_DIR; };
+ 		3D8966882849D45F002AB3F0 /* postinstall */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = postinstall; sourceTree = "<group>"; };
+ 		3D8966892849D45F002AB3F0 /* preinstall */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = preinstall; sourceTree = "<group>"; };
+ /* End PBXFileReference section */
+@@ -80,7 +80,7 @@
+ 			isa = PBXGroup;
+ 			children = (
+ 				3D08380E284A7DE100C69403 /* BlackHole.plist */,
+-				03FDCAD9233F235500101681 /* BlackHole.icns */,
++				03FDCAD9233F235500101681 /* ScreamPadAudio.icns */,
+ 				2D616EF215B8C82500D598BD /* BlackHole.c */,
+ 			);
+ 			path = BlackHole;
+@@ -104,7 +104,7 @@
+ 		2D7477AA1578168D00412279 /* Products */ = {
+ 			isa = PBXGroup;
+ 			children = (
+-				3D89664D2849C318002AB3F0 /* BlackHole.driver */,
++				3D89664D2849C318002AB3F0 /* ScreamPadAudio2ch.driver */,
+ 				3D88D48C285BBA5800629399 /* BlackHoleTests */,
+ 			);
+ 			name = Products;
+@@ -185,7 +185,7 @@
+ 			);
+ 			name = BlackHole;
+ 			productName = AudioNULLDriver;
+-			productReference = 3D89664D2849C318002AB3F0 /* BlackHole.driver */;
++			productReference = 3D89664D2849C318002AB3F0 /* ScreamPadAudio2ch.driver */;
+ 			productType = "com.apple.product-type.bundle";
+ 		};
+ /* End PBXNativeTarget section */
+@@ -231,7 +231,7 @@
+ 			buildActionMask = 2147483647;
+ 			files = (
+ 				3D8966462849C318002AB3F0 /* LICENSE in Resources */,
+-				3D8966472849C318002AB3F0 /* BlackHole.icns in Resources */,
++				3D8966472849C318002AB3F0 /* ScreamPadAudio.icns in Resources */,
+ 				3D8966482849C318002AB3F0 /* CHANGELOG.md in Resources */,
+ 				3D083818284A7F1200C69403 /* VERSION in Resources */,
+ 				3D083819284A7F1500C69403 /* README.md in Resources */,
+@@ -436,16 +436,16 @@
+ 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+ 				CODE_SIGN_STYLE = Automatic;
+ 				COPY_PHASE_STRIP = NO;
+-				DEVELOPMENT_TEAM = Q5C99V536K;
++				DEVELOPMENT_TEAM = "";
+ 				ENABLE_HARDENED_RUNTIME = YES;
+ 				ENABLE_NS_ASSERTIONS = NO;
+ 				GCC_C_LANGUAGE_STANDARD = gnu11;
+ 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+ 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+-				MACOSX_DEPLOYMENT_TARGET = 12.3;
++				MACOSX_DEPLOYMENT_TARGET = 14.0;
+ 				MTL_ENABLE_DEBUG_INFO = NO;
+ 				MTL_FAST_MATH = YES;
+-				PRODUCT_NAME = "$(TARGET_NAME)";
++				PRODUCT_NAME = ScreamPadAudio2ch;
+ 			};
+ 			name = Release;
+ 		};
+@@ -466,7 +466,7 @@
+ 				CODE_SIGN_STYLE = Automatic;
+ 				COPY_PHASE_STRIP = NO;
+ 				DEBUG_INFORMATION_FORMAT = dwarf;
+-				DEVELOPMENT_TEAM = Q5C99V536K;
++				DEVELOPMENT_TEAM = "";
+ 				ENABLE_HARDENED_RUNTIME = YES;
+ 				GCC_C_LANGUAGE_STANDARD = gnu11;
+ 				GCC_DYNAMIC_NO_PIC = NO;
+@@ -476,10 +476,10 @@
+ 				);
+ 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+ 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+-				MACOSX_DEPLOYMENT_TARGET = 12.3;
++				MACOSX_DEPLOYMENT_TARGET = 14.0;
+ 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+ 				MTL_FAST_MATH = YES;
+-				PRODUCT_NAME = "$(TARGET_NAME)";
++				PRODUCT_NAME = ScreamPadAudio2ch;
+ 			};
+ 			name = Debug;
+ 		};
+@@ -500,7 +500,7 @@
+ 				CODE_SIGN_STYLE = Automatic;
+ 				COPY_PHASE_STRIP = NO;
+ 				DEBUG_INFORMATION_FORMAT = dwarf;
+-				DEVELOPMENT_TEAM = Q5C99V536K;
++				DEVELOPMENT_TEAM = "";
+ 				ENABLE_HARDENED_RUNTIME = YES;
+ 				GCC_C_LANGUAGE_STANDARD = gnu11;
+ 				GCC_DYNAMIC_NO_PIC = NO;
+@@ -510,10 +510,10 @@
+ 				);
+ 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+ 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+-				MACOSX_DEPLOYMENT_TARGET = 12.3;
++				MACOSX_DEPLOYMENT_TARGET = 14.0;
+ 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+ 				MTL_FAST_MATH = YES;
+-				PRODUCT_NAME = "$(TARGET_NAME)";
++				PRODUCT_NAME = ScreamPadAudio2ch;
+ 			};
+ 			name = "Debug-Opt";
+ 		};
+@@ -522,17 +522,17 @@
+ 			buildSettings = {
+ 				ALWAYS_SEARCH_USER_PATHS = NO;
+ 				CLANG_ENABLE_OBJC_WEAK = YES;
+-				DEVELOPMENT_TEAM = Q5C99V536K;
++				DEVELOPMENT_TEAM = "";
+ 				GCC_PREPROCESSOR_DEFINITIONS = (
+ 					"$(inherited)",
+ 					"DEBUG=0",
+ 				);
+ 				INFOPLIST_FILE = BlackHole/BlackHole.plist;
+ 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Audio/Plug-Ins/HAL";
+-				MACOSX_DEPLOYMENT_TARGET = 10.10;
+-				MARKETING_VERSION = 0.7.1;
+-				PRODUCT_BUNDLE_IDENTIFIER = audio.existential.BlackHole;
+-				PRODUCT_NAME = "$(TARGET_NAME)";
++				MACOSX_DEPLOYMENT_TARGET = 14.0;
++				MARKETING_VERSION = 0.7.1.1;
++				PRODUCT_BUNDLE_IDENTIFIER = io.github.golovaschukwork.screampad.audio.driver;
++				PRODUCT_NAME = ScreamPadAudio2ch;
+ 				WRAPPER_EXTENSION = driver;
+ 			};
+ 			name = Release;
+@@ -542,17 +542,17 @@
+ 			buildSettings = {
+ 				ALWAYS_SEARCH_USER_PATHS = NO;
+ 				CLANG_ENABLE_OBJC_WEAK = YES;
+-				DEVELOPMENT_TEAM = Q5C99V536K;
++				DEVELOPMENT_TEAM = "";
+ 				GCC_PREPROCESSOR_DEFINITIONS = (
+ 					"$(inherited)",
+ 					"DEBUG=1",
+ 				);
+ 				INFOPLIST_FILE = BlackHole/BlackHole.plist;
+ 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Audio/Plug-Ins/HAL";
+-				MACOSX_DEPLOYMENT_TARGET = 10.10;
+-				MARKETING_VERSION = 0.7.1;
+-				PRODUCT_BUNDLE_IDENTIFIER = audio.existential.BlackHole;
+-				PRODUCT_NAME = "$(TARGET_NAME)";
++				MACOSX_DEPLOYMENT_TARGET = 14.0;
++				MARKETING_VERSION = 0.7.1.1;
++				PRODUCT_BUNDLE_IDENTIFIER = io.github.golovaschukwork.screampad.audio.driver;
++				PRODUCT_NAME = ScreamPadAudio2ch;
+ 				WRAPPER_EXTENSION = driver;
+ 			};
+ 			name = Debug;
+@@ -562,17 +562,17 @@
+ 			buildSettings = {
+ 				ALWAYS_SEARCH_USER_PATHS = NO;
+ 				CLANG_ENABLE_OBJC_WEAK = YES;
+-				DEVELOPMENT_TEAM = Q5C99V536K;
++				DEVELOPMENT_TEAM = "";
+ 				GCC_PREPROCESSOR_DEFINITIONS = (
+ 					"$(inherited)",
+ 					"DEBUG=1",
+ 				);
+ 				INFOPLIST_FILE = BlackHole/BlackHole.plist;
+ 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Audio/Plug-Ins/HAL";
+-				MACOSX_DEPLOYMENT_TARGET = 10.10;
+-				MARKETING_VERSION = 0.7.1;
+-				PRODUCT_BUNDLE_IDENTIFIER = audio.existential.BlackHole;
+-				PRODUCT_NAME = "$(TARGET_NAME)";
++				MACOSX_DEPLOYMENT_TARGET = 14.0;
++				MARKETING_VERSION = 0.7.1.1;
++				PRODUCT_BUNDLE_IDENTIFIER = io.github.golovaschukwork.screampad.audio.driver;
++				PRODUCT_NAME = ScreamPadAudio2ch;
+ 				WRAPPER_EXTENSION = driver;
+ 			};
+ 			name = "Debug-Opt";
+diff --git a/BlackHole/BlackHole.c b/BlackHole/BlackHole.c
+index ac516ef..a361445 100644
+--- a/BlackHole/BlackHole.c
++++ b/BlackHole/BlackHole.c
+@@ -150,15 +150,15 @@ struct ObjectInfo {
+ 
+ 
+ #ifndef kDriver_Name
+-#define                             kDriver_Name                        "BlackHole"
++#define                             kDriver_Name                        "ScreamPad Audio"
+ #endif
+ 
+ #ifndef kPlugIn_BundleID
+-#define                             kPlugIn_BundleID                    "audio.existential.BlackHole2ch"
++#define                             kPlugIn_BundleID                    "io.github.golovaschukwork.screampad.audio.driver"
+ #endif
+ 
+ #ifndef kPlugIn_Icon
+-#define                             kPlugIn_Icon                        "BlackHole.icns"
++#define                             kPlugIn_Icon                        "ScreamPadAudio.icns"
+ #endif
+ 
+ #ifndef kHas_Driver_Name_Format
+@@ -167,10 +167,10 @@ struct ObjectInfo {
+ 
+ #if kHas_Driver_Name_Format
+ #define                             kDriver_Name_Format                 "%ich"
+-#define                             kBox_UID                            kDriver_Name kDriver_Name_Format "_UID"
+-#define                             kDevice_UID                         kDriver_Name kDriver_Name_Format "_UID"
+-#define                             kDevice2_UID                        kDriver_Name kDriver_Name_Format "_2_UID"
+-#define                             kDevice_ModelUID                    kDriver_Name kDriver_Name_Format "_ModelUID"
++#define                             kBox_UID                            "io.github.golovaschukwork.screampad.audio.box.2ch"
++#define                             kDevice_UID                         "io.github.golovaschukwork.screampad.audio.device.2ch"
++#define                             kDevice2_UID                        "io.github.golovaschukwork.screampad.audio.device.2ch.mirror"
++#define                             kDevice_ModelUID                    "io.github.golovaschukwork.screampad.audio.model.2ch"
+ 
+ 
+ #ifndef kDevice_Name
+@@ -229,7 +229,7 @@ struct ObjectInfo {
+ 
+ 
+ #ifndef kManufacturer_Name
+-#define                             kManufacturer_Name                  "Existential Audio Inc."
++#define                             kManufacturer_Name                  "ScreamPad"
+ #endif
+ 
+ #define                             kLatency_Frame_Size                 0
+@@ -243,11 +243,11 @@ struct ObjectInfo {
+ #endif
+ 
+ #ifndef kCanBeDefaultDevice
+-#define                             kCanBeDefaultDevice                 true
++#define                             kCanBeDefaultDevice                 false
+ #endif
+ 
+ #ifndef kCanBeDefaultSystemDevice
+-#define                             kCanBeDefaultSystemDevice           true
++#define                             kCanBeDefaultSystemDevice           false
+ #endif
+ 
+ static pthread_mutex_t              gPlugIn_StateMutex                  = PTHREAD_MUTEX_INITIALIZER;
+@@ -443,12 +443,12 @@ else                                                                  \
+ 	return CFStringCreateWithCString(NULL, _string_fmt, kCFStringEncodingUTF8); \
+ }
+ 
+-static CFStringRef get_box_uid(void)          { RETURN_FORMATTED_STRING(kBox_UID) }
+-static CFStringRef get_device_uid(void)       { RETURN_FORMATTED_STRING(kDevice_UID) }
++static CFStringRef get_box_uid(void)          { return CFStringCreateWithCString(NULL, kBox_UID, kCFStringEncodingUTF8); }
++static CFStringRef get_device_uid(void)       { return CFStringCreateWithCString(NULL, kDevice_UID, kCFStringEncodingUTF8); }
+ static CFStringRef get_device_name(void)      { RETURN_FORMATTED_STRING(kDevice_Name) }
+-static CFStringRef get_device2_uid(void)      { RETURN_FORMATTED_STRING(kDevice2_UID) }
++static CFStringRef get_device2_uid(void)      { return CFStringCreateWithCString(NULL, kDevice2_UID, kCFStringEncodingUTF8); }
+ static CFStringRef get_device2_name(void)     { RETURN_FORMATTED_STRING(kDevice2_Name) }
+-static CFStringRef get_device_model_uid(void) { RETURN_FORMATTED_STRING(kDevice_ModelUID) }
++static CFStringRef get_device_model_uid(void) { return CFStringCreateWithCString(NULL, kDevice_ModelUID, kCFStringEncodingUTF8); }
+ 
+ // Volume conversions
+ 
+@@ -1508,7 +1508,7 @@ static OSStatus	BlackHole_GetPlugInPropertyData(AudioServerPlugInDriverRef inDri
+ 
+ 			if(CFStringCompare(*((CFStringRef*)inQualifierData), boxUID, 0) == kCFCompareEqualTo)
+ 			{
+-				CFStringRef formattedString = CFStringCreateWithFormat(NULL, NULL, CFSTR(kBox_UID), kNumber_Of_Channels);
++				CFStringRef formattedString = CFStringCreateWithCString(NULL, kBox_UID, kCFStringEncodingUTF8);
+ 				if(CFStringCompare(*((CFStringRef*)inQualifierData), formattedString, 0) == kCFCompareEqualTo)
+ 				{
+ 					*((AudioObjectID*)outData) = kObjectID_Box;
+diff --git a/BlackHole/BlackHole.plist b/BlackHole/BlackHole.plist
+index bcbc8d6..4cff711 100644
+--- a/BlackHole/BlackHole.plist
++++ b/BlackHole/BlackHole.plist
+@@ -21,17 +21,17 @@
+ 	<key>CFBundleSignature</key>
+ 	<string>????</string>
+ 	<key>CFBundleVersion</key>
+-	<string>596</string>
++	<string>70101</string>
+ 	<key>CFPlugInFactories</key>
+ 	<dict>
+-		<key>e395c745-4eea-4d94-bb92-46224221047c</key>
++		<key>DF08D44A-FEDF-5AC4-9796-F10DDC9A1970</key>
+ 		<string>BlackHole_Create</string>
+ 	</dict>
+ 	<key>CFPlugInTypes</key>
+ 	<dict>
+ 		<key>443ABAB8-E7B3-491A-B985-BEB9187030DB</key>
+ 		<array>
+-			<string>e395c745-4eea-4d94-bb92-46224221047c</string>
++			<string>DF08D44A-FEDF-5AC4-9796-F10DDC9A1970</string>
+ 		</array>
+ 	</dict>
+ </dict>
