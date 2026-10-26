@@ -2,9 +2,12 @@
 //!
 //! cargo run --example mic_route_probe -- list
 //! cargo run --example mic_route_probe -- start --virtual "BlackHole 2ch" --monitor "MacBook Pro Speakers" --mode both --seconds 600
+//! cargo run --example mic_route_probe -- start --virtual "BlackHole 2ch" --mode clip --clip-file /path/to/short.wav --seconds 15
 
 use std::env;
 use std::f32::consts::TAU;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread;
@@ -16,11 +19,16 @@ use cpal::{
     SupportedStreamConfig,
 };
 use rtrb::{Consumer, Producer, RingBuffer};
+use soundboard_desktop_lib::application::cancel::CancelToken;
+use soundboard_desktop_lib::application::ports::ProbeLimits;
+use soundboard_desktop_lib::audio::backend::OutputFormat;
+use soundboard_desktop_lib::infrastructure::media::decode::decode_clip;
 
 const QUEUE_MS: usize = 200;
 const TARGET_MS: usize = 40;
 const TONE_HZ: f32 = 523.25;
 const TONE_GAIN: f32 = 0.12;
+const MAX_CLIP_MS: u64 = 30_000;
 
 type ProbeResult<T> = Result<T, String>;
 
@@ -67,10 +75,12 @@ impl Metrics {
         elapsed: Duration,
         occupancy: usize,
         capacity: usize,
-        clock_drift_frames: f64,
+        clock_drift_frames: Option<f64>,
     ) {
+        let clock_drift_frames =
+            clock_drift_frames.map_or_else(|| "n/a".to_owned(), |frames| format!("{frames:.1}"));
         println!(
-            "t={:.0}s occupancy={occupancy}/{capacity} max={} captured={} consumed={} overflow={} underflow={} discarded={} callbacks(in/virtual/monitor)={}/{}/{} max_buffer_frames(in/virtual/monitor)={}/{}/{} clock_drift_frames={clock_drift_frames:.1}",
+            "t={:.0}s occupancy={occupancy}/{capacity} max={} captured={} consumed={} overflow={} underflow={} discarded={} callbacks(in/virtual/monitor)={}/{}/{} max_buffer_frames(in/virtual/monitor)={}/{}/{} clock_drift_frames={clock_drift_frames}",
             elapsed.as_secs_f64(),
             self.max_occupancy.load(Ordering::Relaxed),
             self.captured.load(Ordering::Relaxed),
@@ -348,6 +358,27 @@ fn make_clip(rate: u32) -> Arc<[f32]> {
         .into()
 }
 
+fn prepare_clip(rate: u32, file: Option<&Path>) -> ProbeResult<Arc<[f32]>> {
+    let Some(path) = file else {
+        return Ok(make_clip(rate));
+    };
+    let input = File::open(path).map_err(|error| format!("open test clip: {error}"))?;
+    let decoded = decode_clip(
+        input,
+        OutputFormat {
+            sample_rate: rate,
+            channels: 1,
+        },
+        &ProbeLimits {
+            max_duration_ms: MAX_CLIP_MS,
+            max_decode_time: Duration::from_secs(30),
+        },
+        &CancelToken::new(),
+    )
+    .map_err(|error| format!("decode test clip: {error:?}"))?;
+    Ok(decoded.samples().to_vec().into())
+}
+
 fn write_output<T: Pcm>(
     data: &mut [T],
     channels: usize,
@@ -391,12 +422,11 @@ fn build_output<T: Pcm>(
     device: &Device,
     config: StreamConfig,
     mut mic: Option<MicReader>,
-    clip: bool,
+    samples: Option<Arc<[f32]>>,
     metrics: Arc<Metrics>,
     monitor: bool,
 ) -> ProbeResult<Stream> {
     let channels = usize::from(config.channels);
-    let samples = clip.then(|| make_clip(config.sample_rate));
     let error_metrics = Arc::clone(&metrics);
     let mut cursor = 0;
     device
@@ -455,7 +485,7 @@ fn open_output(
     device: &Device,
     supported: SupportedStreamConfig,
     mic: Option<MicReader>,
-    clip: bool,
+    clip: Option<Arc<[f32]>>,
     metrics: Arc<Metrics>,
     monitor: bool,
 ) -> ProbeResult<Stream> {
@@ -526,6 +556,7 @@ fn run(
     monitor_name: Option<&str>,
     mode: Mode,
     seconds: u64,
+    clip_file: Option<&Path>,
 ) -> ProbeResult<()> {
     let virtual_device = choose_device(host, virtual_name, false)?;
     if !virtual_device
@@ -556,7 +587,7 @@ fn run(
     };
     let virtual_config = supported_config(&virtual_device, false)?;
     device_info("virtual output", &virtual_device, &virtual_config);
-    let monitor_config =
+    let mut monitor_config =
         monitor
             .as_ref()
             .and_then(|device| match supported_config(device, false) {
@@ -576,6 +607,27 @@ fn run(
     if let (Some(device), Some(config)) = (&input, &input_config) {
         device_info("microphone", device, config);
     }
+
+    // Decode and resample before any stream starts. Audio callbacks only read immutable samples.
+    let virtual_clip = mode
+        .clip()
+        .then(|| prepare_clip(virtual_config.sample_rate(), clip_file))
+        .transpose()?;
+    let monitor_clip = if mode.clip() {
+        match monitor_config.as_ref() {
+            Some(config) => match prepare_clip(config.sample_rate(), clip_file) {
+                Ok(clip) => Some(clip),
+                Err(error) => {
+                    println!("Local monitoring disabled: {error}");
+                    monitor_config = None;
+                    None
+                }
+            },
+            None => None,
+        }
+    } else {
+        None
+    };
 
     let metrics = Arc::new(Metrics::default());
     let input_rate = input_config.as_ref().map_or(
@@ -605,7 +657,7 @@ fn run(
         &virtual_device,
         virtual_config,
         mic,
-        mode.clip(),
+        virtual_clip,
         Arc::clone(&metrics),
         false,
     )?;
@@ -614,7 +666,7 @@ fn run(
             device,
             config,
             None,
-            mode.clip(),
+            monitor_clip,
             Arc::clone(&metrics),
             true,
         ) {
@@ -683,9 +735,11 @@ fn run(
             .virtual_frames
             .load(Ordering::Relaxed)
             .saturating_sub(virtual_baseline);
-        let drift = input_frames as f64
-            - output_frames as f64 * f64::from(input_rate)
-                / f64::from(virtual_config.sample_rate());
+        let drift = mode.mic().then(|| {
+            input_frames as f64
+                - output_frames as f64 * f64::from(input_rate)
+                    / f64::from(virtual_config.sample_rate())
+        });
         metrics.report(start.elapsed(), occupancy.min(capacity), capacity, drift);
         if metrics.failed.load(Ordering::Acquire) {
             stop_streams(input_stream, monitor_stream, virtual_stream);
@@ -704,12 +758,13 @@ fn parse_and_run() -> ProbeResult<()> {
         return list(&host);
     }
     if args.first().is_none_or(|arg| arg != "start") {
-        return Err("usage: mic_route_probe list | start --virtual NAME [--monitor NAME] [--mode mic|clip|both] [--seconds N]".into());
+        return Err("usage: mic_route_probe list | start --virtual NAME [--monitor NAME] [--mode mic|clip|both] [--clip-file PATH] [--seconds N]".into());
     }
     let mut virtual_name = None;
     let mut monitor = None;
     let mut mode = Mode::Both;
     let mut seconds = 600;
+    let mut clip_file = None::<PathBuf>;
     let mut cursor = 1;
     while cursor < args.len() {
         let value = args
@@ -731,6 +786,7 @@ fn parse_and_run() -> ProbeResult<()> {
                     .parse::<u64>()
                     .map_err(|_| "seconds must be a positive integer")?
             }
+            "--clip-file" => clip_file = Some(PathBuf::from(value)),
             other => return Err(format!("unknown option: {other}")),
         }
         cursor += 2;
@@ -738,12 +794,16 @@ fn parse_and_run() -> ProbeResult<()> {
     if seconds == 0 {
         return Err("seconds must be positive".into());
     }
+    if clip_file.is_some() && !mode.clip() {
+        return Err("--clip-file requires --mode clip or both".into());
+    }
     run(
         &host,
         virtual_name.ok_or("--virtual is required")?,
         monitor,
         mode,
         seconds,
+        clip_file.as_deref(),
     )
 }
 
@@ -757,6 +817,33 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_clip_is_decoded_and_resampled_before_stream_start() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/tone.wav");
+        let clip = prepare_clip(48_000, Some(&fixture)).expect("fixture decodes");
+        assert!(clip.len() >= 12_000);
+        assert!(clip.iter().all(|sample| sample.is_finite()));
+        assert!(clip.iter().any(|sample| sample.abs() > 0.01));
+
+        let mut output = [0.0_f32; 8];
+        let mut cursor = 0;
+        write_output(&mut output, 2, Some(&clip), None, &mut cursor);
+        assert_eq!(output[0], output[1]);
+        assert_eq!(output[2], output[3]);
+        assert_eq!(cursor, 4);
+    }
+
+    #[test]
+    fn missing_clip_fails_before_opening_streams() {
+        let missing =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/no-such-file.wav");
+        assert!(
+            prepare_clip(48_000, Some(&missing))
+                .expect_err("file must be present")
+                .starts_with("open test clip:")
+        );
+    }
 
     #[test]
     fn queue_is_bounded_and_new_frames_are_dropped_when_full() {

@@ -59,6 +59,8 @@ The maximum queue occupancy corresponds to 53.3 ms of queued frames at 48 kHz; i
 
 In a separate ten-second clip-only run, FFmpeg's AVFoundation capture of the BlackHole input, with `silencedetect` and null output, observed a roughly five-second non-silent interval followed by silence. This verifies that the generated clip reached the BlackHole input. No audio recording was saved. It does not establish reception by Discord.
 
+A follow-up isolated probe added `--clip-file PATH` to decode a short file before starting streams, using the existing decoder and no new dependency. On 2026-10-26, a locally synthesized 4.33-second speech WAV was routed in `clip` mode for ten seconds. An independent FFmpeg AVFoundation capture of BlackHole's input, again analyzed with `silencedetect` and null output, observed signal from about 2.88 s to 12.96 s of the capture window. The probe completed cleanly with 941 virtual-output callbacks and no input or monitor stream. This confirms file-backed clip signal at BlackHole's input, not delivery to Discord or Meet. No captured audio was saved. Clock drift is inapplicable to a clip-only run and the probe now reports it as `n/a` in that mode.
+
 During the combined 600-second run, the owner selected BlackHole as Discord's input and reported hearing **only the microphone**, not the test tone. Thus microphone delivery to Discord was observed, but combined microphone-plus-clip delivery to Discord is **NOT VERIFIED**. Whether Discord voice processing suppressed the tone is an untested hypothesis. Local monitoring of the clip is also **NOT VERIFIED**, because the probe did not open a monitor stream.
 
 ## Validation still required
