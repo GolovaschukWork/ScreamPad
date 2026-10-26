@@ -6,6 +6,9 @@ import { backend, commands, resetBackend } from "../../test/fakeBindings";
 import { AudioRouting } from "./AudioRouting";
 import { setSelectedDevice } from "./audioRoutingState";
 
+const opener = vi.hoisted(() => ({ openUrl: vi.fn(async (_url: string) => {}) }));
+vi.mock("@tauri-apps/plugin-opener", () => opener);
+
 vi.mock("../../shared/ipc/bindings", async () => {
   const fake = await import("../../test/fakeBindings");
   return { commands: fake.commands };
@@ -24,6 +27,7 @@ describe("audio routing onboarding", () => {
     setSelectedDevice(null);
     commands.listAudioDevices.mockReset();
     commands.listAudioDevices.mockImplementation(async () => ({ status: "ok", data: backend.audioDevices }));
+    opener.openUrl.mockClear();
   });
 
   it("keeps local playback available through setup required, scanning, and failure", async () => {
@@ -89,12 +93,30 @@ describe("audio routing onboarding", () => {
     expect(within(screen.getByRole("region", { name: "Audio Routing" })).getByText("Virtual Output")).not.toBeNull();
   });
 
-  it("announces scan changes and shows only fixed publisher addresses", async () => {
+  it("announces scan changes and opens only the fixed publisher URLs from keyboard-accessible links", async () => {
+    const user = userEvent.setup();
     backend.audioDevices = result([device()]);
     render(<AudioRouting />);
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Candidate detected"));
     expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
-    expect(screen.getByText("https://existential.audio/blackhole/")).not.toBeNull();
-    expect(screen.getByText("https://github.com/ExistentialAudio/BlackHole/wiki/Installation")).not.toBeNull();
+    const download = screen.getByRole("link", { name: /Get BlackHole for macOS/ });
+    const guide = screen.getByRole("link", { name: /View installation guide/ });
+    expect(download.getAttribute("href")).toBe("https://existential.audio/blackhole/");
+    expect(guide.getAttribute("href")).toBe("https://github.com/ExistentialAudio/BlackHole/wiki/Installation");
+    download.focus();
+    await user.keyboard("{Enter}");
+    await user.click(guide);
+    expect(opener.openUrl.mock.calls).toEqual([
+      ["https://existential.audio/blackhole/"],
+      ["https://github.com/ExistentialAudio/BlackHole/wiki/Installation"],
+    ]);
+  });
+
+  it("announces an opener error without navigating the webview", async () => {
+    const user = userEvent.setup();
+    opener.openUrl.mockRejectedValueOnce(new Error("not allowed"));
+    render(<AudioRouting />);
+    await user.click(screen.getByRole("link", { name: /Get BlackHole for macOS/ }));
+    expect((await screen.findByRole("alert")).textContent).toContain("could not be opened");
   });
 });
