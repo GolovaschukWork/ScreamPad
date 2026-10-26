@@ -39,19 +39,35 @@ On 2026-10-26, a new read-only inventory on macOS 26.2 arm64 returned the follow
 
 The device-specific iPhone identifier is redacted from this public record; it is not needed to interpret the routing result.
 
-No BlackHole or other virtual output appeared in either inventory. Because the prototype requires an output whose name contains `BlackHole`, no routing stream or microphone capture was started. The built-in speakers also have CPAL type `Unknown`; under the prototype's conservative monitor rule, they would be rejected even though macOS reports them as built-in. This is a concrete limitation to resolve before claiming the local-monitor scenario on this Mac.
+At the time of this initial inventory, no virtual output appeared and no routing stream or microphone capture was started. The owner later installed BlackHole 2ch and restarted CoreAudio. The built-in speakers have CPAL type `Unknown`; under the prototype's conservative monitor rule, they are rejected even though macOS reports them as built-in. This is a concrete limitation to resolve before claiming the local-monitor scenario on this Mac.
 
-The prototype logs actual device names, IDs, formats, nominal sample rates, channels, supported and actual stream buffer sizes, maximum observed callback frames, queue occupancy and maximum, overflow, underflow, discarded frames, callback counts and a cumulative capture-versus-virtual-output clock difference in input-frame units. These are observations from callbacks, not latency measurements. The current inventory supplies only system-reported nominal rate and channels. Actual stream format and buffer size, all queue/drift metrics, a real ten-minute run and observed latency remain **NOT VERIFIED**. No end-to-end Discord route has been tested.
+After the CoreAudio restart, CPAL enumerated `BlackHole 2ch` as both input and output with ID `coreaudio:BlackHole2ch_UID` and type `Unknown`. macOS reported virtual transport, two input and two output channels at 48 kHz. This shows why CPAL's type alone is insufficient for provider-neutral identification; this prototype still requires BlackHole in the output name.
+
+On the same Mac, the isolated probe completed a 600-second `both` run with the default `MacBook Pro Microphone` routed to `BlackHole 2ch`. The requested `MacBook Pro Speakers` monitor was disabled before stream startup because CPAL classified it as `Unknown`; no monitor callback ran.
+
+| Measurement | Observed result |
+| --- | --- |
+| Input stream | MacBook Pro Microphone, `f32`, mono, 48 kHz; supported buffer range 15–4096 frames; stream-reported buffer 512 frames |
+| Virtual output stream | BlackHole 2ch, `f32`, stereo, 48 kHz; supported buffer range 15–4096 frames; stream-reported buffer 512 frames |
+| Microphone queue | 9600-frame capacity (200 ms at nominal rate); maximum occupancy 2560 frames; final occupancy 2176 frames |
+| Queue counters | Overflow 0; underflow 0; discarded frames 0 |
+| Frame and callback counters | Captured 28,814,336 frames; consumed 28,812,160 frames; input callbacks 56,278; virtual callbacks 56,273; maximum callback size 512 frames for both streams |
+| Clock difference reported by the probe | 0–512 input-frame units at the one-second samples; final 512. This counter is callback-quantized and does not prove synchronized hardware clocks. |
+| Shutdown | Capture stopped; both streams dropped and the queue released. No device error was observed. |
+
+The maximum queue occupancy corresponds to 53.3 ms of queued frames at 48 kHz; it is **not** an observed end-to-end latency. No end-to-end latency was measured. The one-second occupancy snapshots ranged from 1663 to 2524 frames; the maximum counter records a higher peak between snapshots. The control loop produced 598 periodic rows over the 600-second run, so periodic snapshots are not a continuous trace.
+
+In a separate ten-second clip-only run, FFmpeg's AVFoundation capture of the BlackHole input, with `silencedetect` and null output, observed a roughly five-second non-silent interval followed by silence. This verifies that the generated clip reached the BlackHole input. No audio recording was saved. It does not establish reception by Discord.
+
+During the combined 600-second run, the owner selected BlackHole as Discord's input and reported hearing **only the microphone**, not the test tone. Thus microphone delivery to Discord was observed, but combined microphone-plus-clip delivery to Discord is **NOT VERIFIED**. Whether Discord voice processing suppressed the tone is an untested hypothesis. Local monitoring of the clip is also **NOT VERIFIED**, because the probe did not open a monitor stream.
 
 ## Validation still required
 
-On a Mac where the microphone, BlackHole and a distinct physical output are visible to CPAL:
+1. Repeat Discord checks in separate microphone-only, clip-only and combined runs using a representative sound effect or short speech clip, with the named Discord voice-processing settings recorded. The 523.25 Hz test tone was not heard in the owner's combined test. Confirm that microphone samples stop reaching Discord after capture stops.
+2. Resolve physical-monitor selection using reliable role/identity evidence, then verify that local monitoring contains only the clip. Do not route the microphone to speakers or reuse the virtual output as the monitor.
+3. Measure end-to-end latency with an actual capture/measurement method if needed; do not infer it from queue depth or buffer sizes. Exercise device failure and recovery on real hardware.
 
-1. Run `cargo run --example mic_route_probe --locked -- list` from `src-tauri` and record exact names, IDs and device types. Select BlackHole as Discord's input; do not change the system default microphone.
-2. Run `start --virtual "<BlackHole name>" --monitor "<physical name>" --mode both --seconds 600`, redirecting stdout to a local measurement log outside the repository. Record all device configurations and the ten-minute occupancy, overflow, underflow, discard and clock-drift trends. Do not estimate latency from buffer sizes.
-3. In separate short runs, check microphone only, clip only and combined audio in Discord; verify that local monitoring contains only the clip and that Discord receives no further microphone audio after stopping capture. Test a missing or identical monitor device and a device failure.
-
-As of 2026-10-26, those manual scenarios, a real 10-minute measurement, actual observed latency, Windows 11 and Intel macOS are **NOT VERIFIED**. Do not install a driver or change system defaults as part of device inventory. After the owner installs a suitable virtual device, refresh the inventory and record its configuration before running capture.
+As of 2026-10-26, combined and clip-only Discord routing, local monitoring, capture-stop behavior in Discord, actual observed latency, Windows 11 and Intel macOS are **NOT VERIFIED**. The real ten-minute macOS arm64 queue measurement above is complete; it is not a production routing validation.
 
 ## Production integration path and risks
 
