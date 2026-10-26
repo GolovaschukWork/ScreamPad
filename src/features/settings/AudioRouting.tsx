@@ -130,6 +130,7 @@ function DeviceGroup({
                 <p className="text-xs text-muted-foreground">
                   {t(device.kind === "unknown" ? "routing.unknownType" : "routing.detected")}
                   {" · "}{t(device.configuration === "supported" ? "routing.supported" : device.configuration === "unsupported" ? "routing.unsupported" : "routing.unconfirmed")}
+                  {" · "}{t(device.input ? "routing.inputDetected" : "routing.inputNotDetected")}
                   {isSelected && <> · {t("routing.selected")}</>}
                 </p>
               </div>

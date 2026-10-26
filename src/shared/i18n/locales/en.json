@@ -115,6 +115,8 @@
     "supported": "Configuration supported",
     "unsupported": "Unsupported configuration",
     "unconfirmed": "Configuration unconfirmed",
+    "inputDetected": "Input role detected",
+    "inputNotDetected": "Matching input role not detected",
     "selected": "Selected",
     "select": "Select",
     "selectDevice": "Select {{name}}",

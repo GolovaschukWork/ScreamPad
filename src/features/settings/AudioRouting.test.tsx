@@ -69,6 +69,13 @@ describe("audio routing onboarding", () => {
     expect(screen.queryByText(/Routing Active|Discord Verified/)).toBeNull();
   });
 
+  it("shows when an output has no matching input role", async () => {
+    backend.audioDevices = result([device({ input: false })]);
+    render(<AudioRouting />);
+    expect(await screen.findByText(/Matching input role not detected/)).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Select Virtual Output" })).not.toBeNull();
+  });
+
   it("ignores a late earlier refresh response", async () => {
     const user = userEvent.setup();
     let resolveFirst: (value: { status: "ok"; data: AudioDevicesDto }) => void = () => {};
