@@ -27,9 +27,21 @@ Use A for the prototype in `src-tauri/examples/mic_route_probe.rs`. It is a stan
 
 ## Measurements and current evidence
 
-`cargo test --example mic_route_probe --locked` passes 10 prototype unit tests on macOS arm64, including a ten-minute *simulated* 1% clock mismatch. `cargo run --example mic_route_probe --locked -- list` completed but returned **no input or output devices** in the current execution environment. `system_profiler SPAudioDataType -detailLevel mini` also returned an empty Devices section. This does not establish whether the host Mac lacks devices or the command environment cannot access them. The simulation is not a real-device measurement.
+`cargo test --example mic_route_probe --locked` passes 10 prototype unit tests on macOS arm64, including a ten-minute *simulated* 1% clock mismatch. An earlier `list` and `system_profiler` run returned no devices in that execution environment; it was not a real-device measurement.
 
-The prototype logs actual device names, IDs, formats, nominal sample rates, channels, supported and actual stream buffer sizes, maximum observed callback frames, queue occupancy and maximum, overflow, underflow, discarded frames, callback counts and a cumulative capture-versus-virtual-output clock difference in input-frame units. These are observations from callbacks, not latency measurements. No 10-minute run or latency measurement was possible here; both are **NOT VERIFIED**. No claim about an end-to-end Discord route follows from compiling or opening streams.
+On 2026-10-26, a new read-only inventory on macOS 26.2 arm64 returned the following. CPAL `list` reported the IDs and types; `system_profiler SPAudioDataType -detailLevel mini` reported the channels, current nominal sample rates and built-in transport. The commands did not open any streams or request microphone access.
+
+| Device | CPAL ID | CPAL type | System-reported role and configuration |
+| --- | --- | --- | --- |
+| iPhone Microphone | `coreaudio:<device-specific ID>` | `Unknown` | Input, 1 channel, 48 kHz; transport unknown |
+| MacBook Pro Microphone | `coreaudio:BuiltInMicrophoneDevice` | `Unknown` | Default input, 1 channel, 48 kHz; built-in |
+| MacBook Pro Speakers | `coreaudio:BuiltInSpeakerDevice` | `Unknown` | Default output, 2 channels, 48 kHz; built-in |
+
+The device-specific iPhone identifier is redacted from this public record; it is not needed to interpret the routing result.
+
+No BlackHole or other virtual output appeared in either inventory. Because the prototype requires an output whose name contains `BlackHole`, no routing stream or microphone capture was started. The built-in speakers also have CPAL type `Unknown`; under the prototype's conservative monitor rule, they would be rejected even though macOS reports them as built-in. This is a concrete limitation to resolve before claiming the local-monitor scenario on this Mac.
+
+The prototype logs actual device names, IDs, formats, nominal sample rates, channels, supported and actual stream buffer sizes, maximum observed callback frames, queue occupancy and maximum, overflow, underflow, discarded frames, callback counts and a cumulative capture-versus-virtual-output clock difference in input-frame units. These are observations from callbacks, not latency measurements. The current inventory supplies only system-reported nominal rate and channels. Actual stream format and buffer size, all queue/drift metrics, a real ten-minute run and observed latency remain **NOT VERIFIED**. No end-to-end Discord route has been tested.
 
 ## Validation still required
 
@@ -39,7 +51,7 @@ On a Mac where the microphone, BlackHole and a distinct physical output are visi
 2. Run `start --virtual "<BlackHole name>" --monitor "<physical name>" --mode both --seconds 600`, redirecting stdout to a local measurement log outside the repository. Record all device configurations and the ten-minute occupancy, overflow, underflow, discard and clock-drift trends. Do not estimate latency from buffer sizes.
 3. In separate short runs, check microphone only, clip only and combined audio in Discord; verify that local monitoring contains only the clip and that Discord receives no further microphone audio after stopping capture. Test a missing or identical monitor device and a device failure.
 
-For this PR, those manual scenarios, a real 10-minute measurement, actual observed latency, Windows 11 and Intel macOS are **NOT VERIFIED**.
+As of 2026-10-26, those manual scenarios, a real 10-minute measurement, actual observed latency, Windows 11 and Intel macOS are **NOT VERIFIED**. Do not install a driver or change system defaults as part of device inventory. After the owner installs a suitable virtual device, refresh the inventory and record its configuration before running capture.
 
 ## Production integration path and risks
 
