@@ -53,6 +53,8 @@ The fallback would expose a separate input device and require one-time selection
 
 ## Staged implementation and approval gates
 
+The [macOS production MVP integration plan](../../engineering/macos-call-routing-mvp-plan.md) identifies the current code seams, a narrow sequence of reviewable changes, explicit capture/IPC/permission boundaries, and release evidence. It is a proposal for the owner's architecture review, not authorization to implement production routing.
+
 1. **Feasibility and legal review.** Complete the version-specific macOS distribution audit under ADR 0016. Build an isolated Windows 11 prototype using documented Microsoft APIs and test built-in, USB and Bluetooth recording devices. Record whether call apps receive both mic and representative clips. No production installer or permissions change in this stage.
 2. **Platform architecture decision.** ADR 0016 selects the macOS component architecture and narrowly supersedes the installation exclusion in ADRs 0003/0014. Choose the Windows injection or fallback mechanism from evidence. Review licensing, signing, privilege, uninstall, device-change and failure recovery before production integration.
 3. **Production routing.** Integrate typed IPC, explicit capture controls, bounded Rust mixing, installer state, accessible EN/UK onboarding and telemetry-free diagnostics in separate reviewable PRs. Any new dependency, Tauri capability, system permission or persistent setting needs its own reviewed scope. Preserve the current local playback path.
