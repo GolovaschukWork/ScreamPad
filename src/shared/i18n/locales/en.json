@@ -88,6 +88,7 @@
     "mediaCorrupt": "The file of this sound does not match what was imported and may be damaged.",
     "audioUnavailable": "There is no audio output available right now. Check that speakers or headphones are connected.",
     "audioBusy": "Audio is busy. Try again in a moment.",
+    "deviceDiscoveryFailed": "Audio devices could not be listed. Local playback may still work. Try refreshing the list.",
     "soundNotFound": "This sound is no longer in the library.",
     "invalidSetting": "That value is not allowed for this setting.",
     "playbackClipTooLong": "This sound is too long to play.",

@@ -40,6 +40,8 @@ pub enum AppError {
     AudioUnavailable,
     /// The audio engine is busy or did not answer in time.
     AudioBusy,
+    /// Reading the OS audio-device list failed; local playback may still work.
+    DeviceDiscoveryFailed,
     SoundNotFound,
     /// A setting or sound option is outside its range or names an unsupported choice.
     InvalidSetting,
