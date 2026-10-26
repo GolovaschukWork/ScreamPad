@@ -14,6 +14,7 @@ Accepted decisions:
 - 0011 UI stack (Tailwind v4, shadcn/ui on Base UI, Lucide, Sonner)
 - 0012 Frontend component tests (Vitest) and in-app navigation without a router
 - 0014 Virtual audio device onboarding (macOS, provider-neutral discovery and guided setup)
+- 0016 macOS integrated audio component (optional ScreamPad-branded GPL BlackHole build; distribution and privileged installation separately gated)
 
 Proposed (awaiting owner decision):
 - 0013 Microphone and virtual output routing (prototype and real-device measurements pending)
