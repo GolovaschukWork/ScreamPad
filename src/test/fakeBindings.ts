@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { AppError, ImportResult, PlayModeDto, PlayResult, SettingsDto, SoundSummary, ThemeDto } from "../shared/ipc/bindings";
+import type { AppError, AudioDevicesDto, ImportResult, PlayModeDto, PlayResult, SettingsDto, SoundSummary, ThemeDto } from "../shared/ipc/bindings";
 
 /** The fake backend behind the IPC boundary. It follows the real contract: results are `{status, data|error}`. */
 export const backend = {
@@ -17,6 +17,8 @@ export const backend = {
   importError: null as AppError | null,
   playing: [] as number[],
   playResult: "started" as PlayResult,
+  audioDevices: { devices: [], incomplete: false } as AudioDevicesDto,
+  deviceDiscoveryError: false,
 };
 
 export function resetBackend(): void {
@@ -30,6 +32,8 @@ export function resetBackend(): void {
   backend.importError = null;
   backend.playing = [];
   backend.playResult = "started";
+  backend.audioDevices = { devices: [], incomplete: false };
+  backend.deviceDiscoveryError = false;
 }
 
 type PlayingEvent = { payload: { ids: number[] } };
@@ -60,6 +64,7 @@ export const commands = {
     if (backend.appInfoFails) throw new Error("unreachable");
     return { name: "ScreamPad", version: "0.1.0" };
   }),
+  listAudioDevices: vi.fn(async () => backend.deviceDiscoveryError ? failed({ kind: "deviceDiscoveryFailed" }) : ok(backend.audioDevices)),
   getSettings: vi.fn(async () => (backend.failReadsWith ? failed(backend.failReadsWith) : ok({ ...backend.settings }))),
   updateSettings: vi.fn(async (language: string, masterGainMillibels: number, theme: ThemeDto) => {
     if (backend.holdUpdate) await backend.holdUpdate;

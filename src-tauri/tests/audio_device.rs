@@ -8,9 +8,45 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use soundboard_desktop_lib::application::device_discovery::{DeviceDiscovery, DeviceKind};
 use soundboard_desktop_lib::audio::clip::Clip;
 use soundboard_desktop_lib::audio::engine::{AudioEngine, EngineConfig, EngineState};
 use soundboard_desktop_lib::infrastructure::audio::cpal_backend::CpalBackend;
+use soundboard_desktop_lib::infrastructure::audio::device_discovery::CpalDeviceDiscovery;
+
+#[test]
+#[ignore = "needs a real audio output device"]
+fn discovering_devices_does_not_interrupt_local_playback() {
+    let engine = AudioEngine::start(EngineConfig::production(), || Box::new(CpalBackend::new()))
+        .expect("engine thread");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while engine.snapshot().state != EngineState::Running {
+        assert!(
+            Instant::now() < deadline,
+            "output did not start: {:?}",
+            engine.snapshot()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let before = engine.snapshot();
+    let list = CpalDeviceDiscovery.list().expect("device discovery");
+    std::thread::sleep(Duration::from_millis(200));
+    let after = engine.snapshot();
+    println!(
+        "discovered devices: {:?}",
+        list.devices
+            .iter()
+            .map(|device| (&device.id, &device.name, device.kind == DeviceKind::Virtual))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(after.state, EngineState::Running);
+    assert!(
+        after.callbacks > before.callbacks,
+        "playback callbacks must continue through discovery"
+    );
+    assert_eq!(after.device_losses, before.device_losses);
+    engine.shutdown();
+}
 
 #[test]
 #[ignore = "needs an audio output device"]

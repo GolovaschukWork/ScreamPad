@@ -7,6 +7,7 @@ import { ChoiceSelect, type ChoiceOption } from "@/shared/components/ChoiceSelec
 import { DbSlider } from "@/shared/components/DbSlider";
 import { SettingsRow, SettingsSection } from "./SettingsSection";
 import { useSettings } from "./useSettings";
+import { AudioRouting } from "./AudioRouting";
 
 /** Matches the backend's master gain range (ADR 0010). */
 const MASTER_MIN_MILLIBELS = -6000;
@@ -106,6 +107,8 @@ export function SettingsPage() {
           />
         </SettingsRow>
       </SettingsSection>
+
+      <AudioRouting />
 
       <SettingsSection title={t("settings.about")}>
         <SettingsRow label={t("settings.appName")}>

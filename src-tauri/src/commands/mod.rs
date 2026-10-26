@@ -3,6 +3,7 @@
 //! Commands are registered by their full module path in `crate::ipc` (the specta macros need it).
 
 pub mod app;
+pub mod devices;
 pub mod error;
 pub mod library;
 pub mod playback;

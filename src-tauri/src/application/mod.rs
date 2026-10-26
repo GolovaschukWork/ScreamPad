@@ -3,6 +3,7 @@
 pub mod active;
 pub mod cancel;
 pub mod clip_cache;
+pub mod device_discovery;
 pub mod error;
 pub mod import;
 pub mod playback;

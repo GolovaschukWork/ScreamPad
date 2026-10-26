@@ -9,6 +9,7 @@ pub fn builder<R: tauri::Runtime>() -> Builder<R> {
     Builder::<R>::new()
         .commands(collect_commands![
             commands::app::app_info,
+            commands::devices::list_audio_devices,
             commands::library::library_stats,
             commands::library::list_sounds,
             commands::library::check_sound_media,

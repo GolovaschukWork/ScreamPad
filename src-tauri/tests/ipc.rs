@@ -521,6 +521,26 @@ fn the_window_capability_grants_no_dialog_or_file_system_permission() {
     }
 }
 
+#[test]
+fn opener_capability_is_limited_to_two_publisher_urls() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/capabilities/default.json");
+    let text = std::fs::read_to_string(path).expect("default capability");
+    let capability: Value = serde_json::from_str(&text).expect("valid JSON");
+    assert_eq!(
+        capability["permissions"],
+        json!([
+            "core:default",
+            {
+                "identifier": "opener:allow-open-url",
+                "allow": [
+                    { "url": "https://existential.audio/blackhole/" },
+                    { "url": "https://github.com/ExistentialAudio/BlackHole/wiki/Installation" }
+                ]
+            }
+        ])
+    );
+}
+
 // --- playback ---------------------------------------------------------------------------------------------------------
 
 const TEST_FORMAT: OutputFormat = OutputFormat {
