@@ -2,6 +2,7 @@
 //!
 //! cargo run --example mic_route_probe -- list
 //! cargo run --example mic_route_probe -- start --virtual "BlackHole 2ch" --monitor "MacBook Pro Speakers" --mode both --seconds 600
+//! cargo run --example mic_route_probe -- start --virtual "ScreamPad Audio 2ch" --mode clip --clip-file /path/to/short.wav --seconds 15
 //! cargo run --example mic_route_probe -- start --virtual "BlackHole 2ch" --mode clip --clip-file /path/to/short.wav --seconds 15
 
 use std::env;
@@ -216,7 +217,7 @@ fn physical_monitor(virtual_device: &Device, monitor: Option<Device>) -> Option<
         }
     };
     if monitor_id == virtual_id {
-        println!("Local monitoring disabled: selected output is BlackHole.");
+        println!("Local monitoring disabled: selected output is the virtual output.");
         return None;
     }
     if !is_physical_output(kind) {
@@ -232,6 +233,14 @@ fn is_physical_output(kind: DeviceType) -> bool {
     matches!(
         kind,
         DeviceType::Speaker | DeviceType::Headphones | DeviceType::Headset | DeviceType::Earpiece
+    )
+}
+
+fn is_probe_virtual_output_id(id: &str) -> bool {
+    matches!(
+        id,
+        "coreaudio:BlackHole2ch_UID"
+            | "coreaudio:io.github.golovaschukwork.screampad.audio.device.2ch"
     )
 }
 
@@ -560,11 +569,13 @@ fn run(
 ) -> ProbeResult<()> {
     let virtual_device = choose_device(host, virtual_name, false)?;
     if !virtual_device
-        .to_string()
-        .to_lowercase()
-        .contains("blackhole")
+        .id()
+        .is_ok_and(|id| is_probe_virtual_output_id(&id.to_string()))
     {
-        return Err("virtual output must be a BlackHole device".into());
+        return Err(
+            "virtual output must be the original BlackHole 2ch or ScreamPad Audio 2ch test device"
+                .into(),
+        );
     }
     let requested_monitor = monitor_name.and_then(|name| match choose_device(host, name, false) {
         Ok(device) => Some(device),
@@ -717,7 +728,7 @@ fn run(
     }
     virtual_stream
         .play()
-        .map_err(|error| format!("start BlackHole: {error}"))?;
+        .map_err(|error| format!("start virtual output: {error}"))?;
     if let Some(stream) = &monitor_stream
         && let Err(error) = stream.play()
     {
@@ -923,6 +934,18 @@ mod tests {
         assert!(is_physical_output(DeviceType::Headphones));
         assert!(!is_physical_output(DeviceType::Virtual));
         assert!(!is_physical_output(DeviceType::Unknown));
+    }
+
+    #[test]
+    fn probe_routes_only_to_known_virtual_device_ids() {
+        assert!(is_probe_virtual_output_id("coreaudio:BlackHole2ch_UID"));
+        assert!(is_probe_virtual_output_id(
+            "coreaudio:io.github.golovaschukwork.screampad.audio.device.2ch"
+        ));
+        assert!(!is_probe_virtual_output_id(
+            "coreaudio:BuiltInSpeakerDevice"
+        ));
+        assert!(!is_probe_virtual_output_id("coreaudio:UnknownDevice"));
     }
 
     #[test]
