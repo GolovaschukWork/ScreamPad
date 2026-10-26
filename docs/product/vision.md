@@ -1,6 +1,6 @@
 # Product vision
 
-**Name:** ScreamPad. **License:** TBD.
+**Name:** ScreamPad. **License:** GPL-3.0-only (owner decision, 2026-10-26).
 
 A premium, accessible, local-first desktop soundboard for general audiences on Windows 11 and macOS 14+.
 

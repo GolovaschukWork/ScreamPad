@@ -71,8 +71,8 @@ WebView2 on Windows), i18next (ADR 0008), generated IPC bindings (ADR 0004).
 | `shadcn` | 4.22.1 | **not added to the project**; used only as a pinned one-off `pnpm dlx shadcn@4.22.1` to generate source | MIT | 2026-10-18 |
 
 Not requested: `motion` (14.6.0, MIT) and any font package. Fonts stay the system stack. Versions are re-verified at install time
-and installs use the lockfile with `--frozen-lockfile` in CI. License identifier of ScreamPad is still TBD; Apache-2.0 and ISC
-are compatible with GPL-3.0 and with permissive choices, to be confirmed in the pending license audit.
+and installs use the lockfile with `--frozen-lockfile` in CI. The license identifier was TBD when this ADR was accepted; the
+owner selected GPL-3.0-only on 2026-10-26. Apache-2.0 and ISC compatibility remains subject to the pending dependency audit.
 
 ## Design decisions carried over from the hand-written styling (PR #30, not merged)
 The useful parts of #30 move into the foundation, expressed as semantic tokens: system light/dark through

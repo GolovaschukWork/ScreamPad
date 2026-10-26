@@ -35,7 +35,9 @@ Prefer the third option, subject to the platform feasibility gates below. Reprod
 
 ### macOS path
 
-Provide an in-app, consent-based setup flow for a compatible virtual audio device. Prefer a properly licensed, signed and notarized distributable component if one is available. If distribution rights or operational requirements make that unsuitable, evaluate a first-party Core Audio Audio Server plug-in. BlackHole remains an optional compatible provider, not a hardcoded requirement. Do not bundle or repackage BlackHole without written distribution rights for ScreamPad's license model.
+Provide an in-app, consent-based setup flow for a compatible virtual audio device. Prefer a properly licensed, signed and notarized distributable component if one is available. If distribution rights or operational requirements make that unsuitable, evaluate a first-party Core Audio Audio Server plug-in. BlackHole remains an optional compatible provider, not a hardcoded requirement. Do not bundle or repackage BlackHole until its distribution rights and compliance obligations have been reviewed for ScreamPad's license model.
+
+On 2026-10-26, the owner selected GPL-3.0-only for ScreamPad. BlackHole's publisher states that GPL-3.0 applications may integrate it. This opens a licensing path for evaluation; it does not yet select BlackHole, approve an installer, or complete distribution compliance.
 
 The setup UI must explain the OS installer/admin and restart or CoreAudio-restart step before the user accepts it. The application must not silently install, elevate, change system defaults, or alter another app's input selection. After installation, refresh discovery, verify the input/output roles and supported configuration, select the route explicitly, and provide a short call-app test. A user may need to select the corresponding virtual input once in Discord, Meet, or another app. The existing manual provider-neutral path remains available.
 

@@ -4,4 +4,4 @@ Read the [engineering standards](docs/engineering/standards.md), [development wo
 
 Use the pinned Node, pnpm, and Rust toolchains documented in [bootstrap](docs/engineering/bootstrap.md). Run checks relevant to your change and record the exact results in the draft PR. Keep changes focused and use a Conventional Commit and PR title. Do not claim OS, audio hardware, signing, or external integration verification without evidence.
 
-The project license is still TBD. Coordinate with the owner before outside contributions or public distribution.
+ScreamPad is licensed under GPL-3.0-only. Contributions must be compatible with that license. Coordinate with the owner before public distribution while the dependency and packaging compliance audit remains open.

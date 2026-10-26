@@ -2,7 +2,7 @@
 
 ScreamPad is a local-first desktop soundboard for Windows 11 x64 and macOS 14+ (arm64/x64). It uses Tauri 2, React, TypeScript, Rust, and SQLite. The product is under development; platform audio behavior and production distribution remain subject to the verification and release gates in `docs/engineering/`.
 
-Start with [CONTRIBUTING.md](CONTRIBUTING.md), [architecture](docs/architecture/overview.md), and the [Accepted ADRs](docs/architecture/decisions/README.md). The product license, publisher identity, domain, and production bundle identifier are still undecided. Do not publicly distribute a release before those decisions and the release gates are complete.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), [architecture](docs/architecture/overview.md), and the [Accepted ADRs](docs/architecture/decisions/README.md). ScreamPad is licensed under [GPL-3.0-only](LICENSE). Publisher identity, domain, and the production bundle identifier remain undecided. Do not publicly distribute a release before the dependency/license audit and the other release gates are complete.
 
 ## AI development
 
