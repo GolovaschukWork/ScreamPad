@@ -66,6 +66,7 @@ The fallback would expose a separate input device and require one-time selection
 
 ## Validation status
 
+- A dated [platform feasibility note](../../engineering/integrated-call-routing-feasibility.md) records source-backed macOS installation constraints and Windows APO device-targeting limits. It does not select a production component.
 - macOS arm64: BlackHole input loopback with the generated clip and a 600-second bounded-queue prototype run were observed; Discord received the microphone but the test tone was not heard. Combined Discord routing, local monitoring and end-to-end latency are **NOT VERIFIED**.
 - macOS packaged-driver installation, Intel macOS, Windows 11 audio processing, signed distribution, Discord and Meet routing through a Windows component are **NOT VERIFIED**.
 - This ADR changes documentation only. No production routing, installer, driver, permissions, dependencies or system defaults are changed by it.
