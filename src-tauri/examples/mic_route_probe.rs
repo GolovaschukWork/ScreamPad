@@ -696,7 +696,7 @@ fn run(
     }
     if mode.mic() {
         let target = input_rate as u64 * TARGET_MS as u64 / 1000;
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(10);
         while metrics.captured.load(Ordering::Relaxed) < target
             && Instant::now() < deadline
             && !metrics.failed.load(Ordering::Acquire)
@@ -707,7 +707,12 @@ fn run(
             drop(input_stream);
             drop(monitor_stream);
             drop(virtual_stream);
-            return Err("microphone did not deliver enough frames to start routing".into());
+            return Err(format!(
+                "microphone did not deliver enough frames to start routing: captured={} callbacks={} device_error={}",
+                metrics.captured.load(Ordering::Relaxed),
+                metrics.input_callbacks.load(Ordering::Relaxed),
+                metrics.failed.load(Ordering::Acquire)
+            ));
         }
     }
     virtual_stream
