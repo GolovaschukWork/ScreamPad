@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/shared/ui/button";
 import { commands, type AudioDeviceDto } from "../../shared/ipc/bindings";
 import { SettingsSection } from "./SettingsSection";
@@ -19,6 +20,7 @@ export function AudioRouting() {
   const { t } = useTranslation();
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: "scanning" });
   const [selected, setSelected] = useState<SelectedDevice | null>(getSelectedDevice);
+  const [linkFailed, setLinkFailed] = useState(false);
   const request = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -60,6 +62,15 @@ export function AudioRouting() {
     setSelected(value);
   };
 
+  const openPublisherUrl = async (url: typeof BLACKHOLE_URL | typeof INSTALLATION_URL) => {
+    setLinkFailed(false);
+    try {
+      await openUrl(url);
+    } catch {
+      setLinkFailed(true);
+    }
+  };
+
   return (
     <SettingsSection title={t("routing.title")}>
       <div className="space-y-4 px-4 py-4 text-sm">
@@ -97,8 +108,17 @@ export function AudioRouting() {
             <li>{t("routing.stepRefresh")}</li>
             <li>{t("routing.stepChat")}</li>
           </ol>
-          <p>{t("routing.blackholeUrlLabel")}: <span className="break-all select-text">{BLACKHOLE_URL}</span></p>
-          <p>{t("routing.instructionsUrlLabel")}: <span className="break-all select-text">{INSTALLATION_URL}</span></p>
+          <p>
+            <a href={BLACKHOLE_URL} target="_blank" rel="noopener noreferrer" className="break-all text-primary underline underline-offset-4 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={(event) => { event.preventDefault(); void openPublisherUrl(BLACKHOLE_URL); }}>
+              {t("routing.blackholeUrlLabel")}
+            </a>
+          </p>
+          <p>
+            <a href={INSTALLATION_URL} target="_blank" rel="noopener noreferrer" className="break-all text-primary underline underline-offset-4 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={(event) => { event.preventDefault(); void openPublisherUrl(INSTALLATION_URL); }}>
+              {t("routing.instructionsUrlLabel")}
+            </a>
+          </p>
+          {linkFailed && <p role="alert" className="text-destructive">{t("routing.linkFailed")}</p>}
         </div>
       </div>
     </SettingsSection>
