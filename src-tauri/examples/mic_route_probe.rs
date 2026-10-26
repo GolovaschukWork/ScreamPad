@@ -4,6 +4,7 @@
 //! cargo run --example mic_route_probe -- start --virtual "BlackHole 2ch" --monitor "MacBook Pro Speakers" --mode both --seconds 600
 //! cargo run --example mic_route_probe -- start --virtual "ScreamPad Audio 2ch" --mode clip --clip-file /path/to/short.wav --seconds 15
 //! cargo run --example mic_route_probe -- start --virtual "BlackHole 2ch" --mode clip --clip-file /path/to/short.wav --seconds 15
+//! cargo run --example mic_route_probe -- start --virtual "ScreamPad Audio 2ch" --mode both --clip-file /path/to/short.wav --mic-gain-db 6 --clip-gain-db -12 --seconds 15
 
 use std::env;
 use std::f32::consts::TAU;
@@ -30,6 +31,8 @@ const TARGET_MS: usize = 40;
 const TONE_HZ: f32 = 523.25;
 const TONE_GAIN: f32 = 0.12;
 const MAX_CLIP_MS: u64 = 30_000;
+const ENERGY_SCALE: f64 = 1_000_000_000.0;
+const PEAK_SCALE: f64 = 1_000_000.0;
 
 type ProbeResult<T> = Result<T, String>;
 
@@ -49,6 +52,42 @@ impl Mode {
     }
 }
 
+#[derive(Clone, Copy)]
+struct MixLevels {
+    mic: f32,
+    clip: f32,
+}
+
+impl Default for MixLevels {
+    fn default() -> Self {
+        Self {
+            mic: 1.0,
+            clip: 1.0,
+        }
+    }
+}
+
+fn parse_gain_db(raw: &str, minimum: f32, maximum: f32) -> ProbeResult<f32> {
+    let decibels = raw
+        .parse::<f32>()
+        .map_err(|_| format!("invalid gain in dB: {raw}"))?;
+    if !decibels.is_finite() || !(minimum..=maximum).contains(&decibels) {
+        return Err(format!(
+            "gain must be finite and between {minimum} and {maximum} dB"
+        ));
+    }
+    Ok(10.0_f32.powf(decibels / 20.0))
+}
+
+#[derive(Default)]
+struct MixStats {
+    mic_energy: f64,
+    clip_energy: f64,
+    output_energy: f64,
+    output_peak: f64,
+    clipped_frames: u64,
+}
+
 #[derive(Default)]
 struct Metrics {
     captured: AtomicU64,
@@ -64,12 +103,57 @@ struct Metrics {
     input_max_frames: AtomicUsize,
     virtual_max_frames: AtomicUsize,
     monitor_max_frames: AtomicUsize,
+    route_mic_energy: AtomicU64,
+    route_clip_energy: AtomicU64,
+    route_output_energy: AtomicU64,
+    route_output_peak: AtomicU64,
+    route_clipped_frames: AtomicU64,
     failed: AtomicBool,
 }
 
 impl Metrics {
     fn occupancy_max(&self, value: usize) {
         self.max_occupancy.fetch_max(value, Ordering::Relaxed);
+    }
+
+    fn record_mix(&self, stats: MixStats) {
+        self.route_mic_energy
+            .fetch_add((stats.mic_energy * ENERGY_SCALE) as u64, Ordering::Relaxed);
+        self.route_clip_energy
+            .fetch_add((stats.clip_energy * ENERGY_SCALE) as u64, Ordering::Relaxed);
+        self.route_output_energy.fetch_add(
+            (stats.output_energy * ENERGY_SCALE) as u64,
+            Ordering::Relaxed,
+        );
+        self.route_output_peak
+            .fetch_max((stats.output_peak * PEAK_SCALE) as u64, Ordering::Relaxed);
+        self.route_clipped_frames
+            .fetch_add(stats.clipped_frames, Ordering::Relaxed);
+    }
+
+    fn report_mix(&self) {
+        let frames = self.virtual_frames.load(Ordering::Relaxed);
+        let rms_db = |energy: u64| {
+            let mean_square = energy as f64 / (ENERGY_SCALE * frames.max(1) as f64);
+            if mean_square > 0.0 {
+                10.0 * mean_square.log10()
+            } else {
+                f64::NEG_INFINITY
+            }
+        };
+        let peak = self.route_output_peak.load(Ordering::Relaxed) as f64 / PEAK_SCALE;
+        println!(
+            "route levels: mic_rms={:.1} dBFS clip_rms={:.1} dBFS output_rms={:.1} dBFS output_peak={:.1} dBFS clipped_frames={}",
+            rms_db(self.route_mic_energy.load(Ordering::Relaxed)),
+            rms_db(self.route_clip_energy.load(Ordering::Relaxed)),
+            rms_db(self.route_output_energy.load(Ordering::Relaxed)),
+            if peak > 0.0 {
+                20.0 * peak.log10()
+            } else {
+                f64::NEG_INFINITY
+            },
+            self.route_clipped_frames.load(Ordering::Relaxed),
+        );
     }
     fn report(
         &self,
@@ -394,11 +478,23 @@ fn write_output<T: Pcm>(
     clip: Option<&[f32]>,
     mut mic: Option<&mut MicReader>,
     cursor: &mut usize,
-) {
+    levels: MixLevels,
+) -> MixStats {
+    let mut stats = MixStats::default();
     for frame in data.chunks_exact_mut(channels) {
-        let voice = mic.as_deref_mut().map_or(0.0, MicReader::frame);
-        let tone = clip.map_or(0.0, |samples| samples[*cursor % samples.len()]);
-        let sample = T::from_float((voice + tone).clamp(-1.0, 1.0));
+        let voice = mic.as_deref_mut().map_or(0.0, MicReader::frame) * levels.mic;
+        let clip_sample = match clip {
+            Some(samples) if !samples.is_empty() => samples[*cursor % samples.len()] * levels.clip,
+            _ => 0.0,
+        };
+        let unbounded = voice + clip_sample;
+        let bounded = unbounded.clamp(-1.0, 1.0);
+        let sample = T::from_float(bounded);
+        stats.mic_energy += f64::from(voice) * f64::from(voice);
+        stats.clip_energy += f64::from(clip_sample) * f64::from(clip_sample);
+        stats.output_energy += f64::from(bounded) * f64::from(bounded);
+        stats.output_peak = stats.output_peak.max(f64::from(bounded.abs()));
+        stats.clipped_frames += u64::from(unbounded.abs() > 1.0);
         for (index, channel) in frame.iter_mut().enumerate() {
             *channel = if index < 2 {
                 sample
@@ -408,6 +504,7 @@ fn write_output<T: Pcm>(
         }
         *cursor += 1;
     }
+    stats
 }
 
 fn render_or_silence<T: Pcm>(
@@ -417,13 +514,15 @@ fn render_or_silence<T: Pcm>(
     mic: Option<&mut MicReader>,
     cursor: &mut usize,
     failed: bool,
-) {
+    levels: MixLevels,
+) -> MixStats {
     if failed {
         for sample in data {
             *sample = T::from_float(0.0);
         }
+        MixStats::default()
     } else {
-        write_output(data, channels, clip, mic, cursor);
+        write_output(data, channels, clip, mic, cursor, levels)
     }
 }
 
@@ -434,6 +533,7 @@ fn build_output<T: Pcm>(
     samples: Option<Arc<[f32]>>,
     metrics: Arc<Metrics>,
     monitor: bool,
+    levels: MixLevels,
 ) -> ProbeResult<Stream> {
     let channels = usize::from(config.channels);
     let error_metrics = Arc::clone(&metrics);
@@ -457,14 +557,18 @@ fn build_output<T: Pcm>(
                         .virtual_frames
                         .fetch_add((data.len() / channels) as u64, Ordering::Relaxed);
                 }
-                render_or_silence(
+                let stats = render_or_silence(
                     data,
                     channels,
                     samples.as_deref(),
                     mic.as_mut(),
                     &mut cursor,
                     failed,
+                    levels,
                 );
+                if !monitor {
+                    metrics.record_mix(stats);
+                }
             },
             move |_| {
                 error_metrics.failed.store(true, Ordering::Release);
@@ -497,13 +601,20 @@ fn open_output(
     clip: Option<Arc<[f32]>>,
     metrics: Arc<Metrics>,
     monitor: bool,
+    levels: MixLevels,
 ) -> ProbeResult<Stream> {
     let format = supported.sample_format();
     let config = supported.config();
     match format {
-        SampleFormat::F32 => build_output::<f32>(device, config, mic, clip, metrics, monitor),
-        SampleFormat::I16 => build_output::<i16>(device, config, mic, clip, metrics, monitor),
-        SampleFormat::U16 => build_output::<u16>(device, config, mic, clip, metrics, monitor),
+        SampleFormat::F32 => {
+            build_output::<f32>(device, config, mic, clip, metrics, monitor, levels)
+        }
+        SampleFormat::I16 => {
+            build_output::<i16>(device, config, mic, clip, metrics, monitor, levels)
+        }
+        SampleFormat::U16 => {
+            build_output::<u16>(device, config, mic, clip, metrics, monitor, levels)
+        }
         _ => Err(format!("unsupported output format: {format:?}")),
     }
 }
@@ -566,6 +677,7 @@ fn run(
     mode: Mode,
     seconds: u64,
     clip_file: Option<&Path>,
+    levels: MixLevels,
 ) -> ProbeResult<()> {
     let virtual_device = choose_device(host, virtual_name, false)?;
     if !virtual_device
@@ -671,6 +783,7 @@ fn run(
         virtual_clip,
         Arc::clone(&metrics),
         false,
+        levels,
     )?;
     let mut monitor_stream = match (monitor.as_ref(), monitor_config) {
         (Some(device), Some(config)) => match open_output(
@@ -680,6 +793,7 @@ fn run(
             monitor_clip,
             Arc::clone(&metrics),
             true,
+            levels,
         ) {
             Ok(stream) => Some(stream),
             Err(error) => {
@@ -699,6 +813,10 @@ fn run(
         input_stream
             .as_ref()
             .and_then(|stream| stream.buffer_size().ok())
+    );
+    println!(
+        "route gains: microphone={:.2}x clip={:.2}x",
+        levels.mic, levels.clip
     );
     if let Some(stream) = &input_stream {
         stream
@@ -759,10 +877,12 @@ fn run(
         metrics.report(start.elapsed(), occupancy.min(capacity), capacity, drift);
         if metrics.failed.load(Ordering::Acquire) {
             stop_streams(input_stream, monitor_stream, virtual_stream);
+            metrics.report_mix();
             return Err("audio device failed; all routing streams stopped".into());
         }
     }
     stop_streams(input_stream, monitor_stream, virtual_stream);
+    metrics.report_mix();
     println!("Capture stopped; streams dropped and queue released.");
     Ok(())
 }
@@ -774,13 +894,14 @@ fn parse_and_run() -> ProbeResult<()> {
         return list(&host);
     }
     if args.first().is_none_or(|arg| arg != "start") {
-        return Err("usage: mic_route_probe list | start --virtual NAME [--monitor NAME] [--mode mic|clip|both] [--clip-file PATH] [--seconds N]".into());
+        return Err("usage: mic_route_probe list | start --virtual NAME [--monitor NAME] [--mode mic|clip|both] [--clip-file PATH] [--mic-gain-db -12..12] [--clip-gain-db -36..0] [--seconds N]".into());
     }
     let mut virtual_name = None;
     let mut monitor = None;
     let mut mode = Mode::Both;
     let mut seconds = 600;
     let mut clip_file = None::<PathBuf>;
+    let mut levels = MixLevels::default();
     let mut cursor = 1;
     while cursor < args.len() {
         let value = args
@@ -803,6 +924,8 @@ fn parse_and_run() -> ProbeResult<()> {
                     .map_err(|_| "seconds must be a positive integer")?
             }
             "--clip-file" => clip_file = Some(PathBuf::from(value)),
+            "--mic-gain-db" => levels.mic = parse_gain_db(value, -12.0, 12.0)?,
+            "--clip-gain-db" => levels.clip = parse_gain_db(value, -36.0, 0.0)?,
             other => return Err(format!("unknown option: {other}")),
         }
         cursor += 2;
@@ -820,6 +943,7 @@ fn parse_and_run() -> ProbeResult<()> {
         mode,
         seconds,
         clip_file.as_deref(),
+        levels,
     )
 }
 
@@ -844,7 +968,14 @@ mod tests {
 
         let mut output = [0.0_f32; 8];
         let mut cursor = 0;
-        write_output(&mut output, 2, Some(&clip), None, &mut cursor);
+        write_output(
+            &mut output,
+            2,
+            Some(&clip),
+            None,
+            &mut cursor,
+            MixLevels::default(),
+        );
         assert_eq!(output[0], output[1]);
         assert_eq!(output[2], output[3]);
         assert_eq!(cursor, 4);
@@ -915,7 +1046,14 @@ mod tests {
     fn monitor_never_receives_microphone_samples() {
         let mut output = [0.0_f32; 4];
         let mut cursor = 0;
-        write_output(&mut output, 2, None, None, &mut cursor);
+        write_output(
+            &mut output,
+            2,
+            None,
+            None,
+            &mut cursor,
+            MixLevels::default(),
+        );
         assert_eq!(output, [0.0; 4]);
         assert_eq!(cursor, 2);
     }
@@ -924,8 +1062,98 @@ mod tests {
     fn extra_output_channels_remain_silent() {
         let mut output = [0.0_f32; 4];
         let mut cursor = 0;
-        write_output(&mut output, 4, Some(&[0.5]), None, &mut cursor);
+        write_output(
+            &mut output,
+            4,
+            Some(&[0.5]),
+            None,
+            &mut cursor,
+            MixLevels::default(),
+        );
         assert_eq!(output, [0.5, 0.5, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn empty_clip_is_silent_without_callback_failure() {
+        let mut output = [1.0_f32; 2];
+        let mut cursor = 0;
+        let stats = write_output(
+            &mut output,
+            2,
+            Some(&[]),
+            None,
+            &mut cursor,
+            MixLevels::default(),
+        );
+        assert_eq!(output, [0.0, 0.0]);
+        assert_eq!(stats.clipped_frames, 0);
+    }
+
+    #[test]
+    fn gain_is_bounded_and_rejects_non_finite_values() {
+        assert!(
+            (parse_gain_db("6", -12.0, 12.0).expect("valid gain") - 1.995_262_3).abs() < 0.0001
+        );
+        assert_eq!(parse_gain_db("0", -36.0, 0.0).expect("unity gain"), 1.0);
+        assert!(parse_gain_db("13", -12.0, 12.0).is_err());
+        assert!(parse_gain_db("1", -36.0, 0.0).is_err());
+        assert!(parse_gain_db("NaN", -12.0, 12.0).is_err());
+        assert!(parse_gain_db("inf", -12.0, 12.0).is_err());
+    }
+
+    #[test]
+    fn mic_continues_through_clip_silence_with_independent_gain() {
+        let (mut tx, rx) = RingBuffer::new(8);
+        let metrics = Arc::new(Metrics::default());
+        for _ in 0..4 {
+            push_capture(&mut tx, 0.05, &metrics, 8);
+        }
+        let mut reader = MicReader::new(rx, 1_000, 1_000, Arc::clone(&metrics));
+        let mut output = [0.0_f32; 4];
+        let mut cursor = 0;
+        let stats = write_output(
+            &mut output,
+            2,
+            Some(&[0.5, 0.0]),
+            Some(&mut reader),
+            &mut cursor,
+            MixLevels {
+                mic: 2.0,
+                clip: 0.5,
+            },
+        );
+        assert!((output[0] - 0.35).abs() < 0.0001);
+        assert!((output[2] - 0.10).abs() < 0.0001);
+        assert_eq!(output[0], output[1]);
+        assert_eq!(output[2], output[3]);
+        assert!(stats.mic_energy > 0.0);
+        assert!(stats.clip_energy > 0.0);
+        assert_eq!(stats.clipped_frames, 0);
+    }
+
+    #[test]
+    fn overlapping_sources_are_bounded_and_count_clipped_frames() {
+        let (mut tx, rx) = RingBuffer::new(8);
+        let metrics = Arc::new(Metrics::default());
+        for _ in 0..3 {
+            push_capture(&mut tx, 0.8, &metrics, 8);
+        }
+        let mut reader = MicReader::new(rx, 1_000, 1_000, Arc::clone(&metrics));
+        let mut output = [0.0_f32; 2];
+        let mut cursor = 0;
+        let stats = write_output(
+            &mut output,
+            2,
+            Some(&[0.8]),
+            Some(&mut reader),
+            &mut cursor,
+            MixLevels {
+                mic: 2.0,
+                clip: 1.0,
+            },
+        );
+        assert_eq!(output, [1.0, 1.0]);
+        assert_eq!(stats.clipped_frames, 1);
     }
 
     #[test]
@@ -963,6 +1191,7 @@ mod tests {
             None,
             &mut cursor,
             metrics.failed.load(Ordering::Acquire),
+            MixLevels::default(),
         );
         assert_eq!(output, [0.0, 0.0]);
         assert_eq!(cursor, 0, "failed routing cannot advance clip playback");

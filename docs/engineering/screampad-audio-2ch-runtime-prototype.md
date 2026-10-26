@@ -32,6 +32,10 @@ The 25-second combined run reported queue capacity 9,600 mono frames, maximum oc
 
 The Mac's system input volume was 29 during diagnosis; it was not changed. [Discord's Voice Input Modes guide](https://support.discord.com/hc/en-us/articles/211376518-Voice-Input-Modes-101-Push-to-Talk-Voice-Activated) describes automatic and manual input sensitivity and warns that automatic sensitivity can cut off softer voice with large level variation. This is a hypothesis for the observed combined-test gating, not a verified root cause.
 
+## Isolated level-control follow-up
+
+The standalone `mic_route_probe` now accepts bounded `--mic-gain-db` (−12 to +12 dB) and `--clip-gain-db` (−36 to 0 dB). Both default to 0 dB to preserve previous output. The gains are parsed before streams start and converted to linear scalars outside callbacks. Callback work remains bounded and records source/output energy, output peak and clipped-frame count through atomics; the control loop prints derived RMS levels at the end of the run. These meters do not save voice samples. A clip-only run on the branded device reported output RMS −21.1 dBFS and peak −18.1 dBFS at 0 dB clip gain; at −12 dB clip gain it reported RMS −33.1 dBFS and peak −30.1 dBFS. Both runs had zero clipped frames and stopped cleanly. Seventeen example tests passed, including microphone continuity through a silent clip frame, gain validation, empty-clip safety and mix clipping. **No combined Discord test with adjusted gains has been performed**, so this change is an instrumented prototype, not a demonstrated fix for Discord gating.
+
 ## Remaining gates
 
 - **NOT VERIFIED:** signed/notarized artifact, macOS 14 runtime, Intel runtime, fresh installation on a clean Mac, upgrade/reinstall/repair/interrupted install, removal/rollback, long-duration drift, and local monitoring isolation.
