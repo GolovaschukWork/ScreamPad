@@ -1,6 +1,6 @@
 # ScreamPad engineering entrypoint for Claude Code
 
-> Product name: ScreamPad (owner-approved). License: TBD. Publisher, domain, and production bundle identifier remain undecided.
+> Product name: ScreamPad (owner-approved). License: GPL-3.0-only (owner-approved). Publisher, domain, and production bundle identifier remain undecided.
 
 ScreamPad is a local-first desktop soundboard for Windows 11 x64 and macOS 14+ arm64/x64. The stack is Tauri 2, React, TypeScript, Rust, and SQLite. Read the [shared standards](docs/engineering/standards.md), [development workflow](docs/engineering/development-workflow.md), [architecture](docs/architecture/overview.md), and [Accepted ADRs](docs/architecture/decisions/README.md). Those documents are the source of truth.
 

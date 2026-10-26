@@ -35,7 +35,9 @@ Prefer the third option, subject to the platform feasibility gates below. Reprod
 
 ### macOS path
 
-Provide an in-app, consent-based setup flow for a compatible virtual audio device. Prefer a properly licensed, signed and notarized distributable component if one is available. If distribution rights or operational requirements make that unsuitable, evaluate a first-party Core Audio Audio Server plug-in. BlackHole remains an optional compatible provider, not a hardcoded requirement. Do not bundle or repackage BlackHole without written distribution rights for ScreamPad's license model.
+Provide an in-app, consent-based setup flow for a compatible virtual audio device. Prefer a properly licensed, signed and notarized distributable component if one is available. If distribution rights or operational requirements make that unsuitable, evaluate a first-party Core Audio Audio Server plug-in. BlackHole remains an optional compatible provider, not a hardcoded requirement. Do not bundle or repackage BlackHole until its distribution rights and compliance obligations have been reviewed for ScreamPad's license model.
+
+On 2026-10-26, the owner selected GPL-3.0-only for ScreamPad. BlackHole's publisher states that GPL-3.0 applications may integrate it. This opens a licensing path for evaluation; it does not yet select BlackHole, approve an installer, or complete distribution compliance.
 
 The setup UI must explain the OS installer/admin and restart or CoreAudio-restart step before the user accepts it. The application must not silently install, elevate, change system defaults, or alter another app's input selection. After installation, refresh discovery, verify the input/output roles and supported configuration, select the route explicitly, and provide a short call-app test. A user may need to select the corresponding virtual input once in Discord, Meet, or another app. The existing manual provider-neutral path remains available.
 
@@ -66,6 +68,7 @@ The fallback would expose a separate input device and require one-time selection
 
 ## Validation status
 
+- A dated [platform feasibility note](../../engineering/integrated-call-routing-feasibility.md) records source-backed macOS installation constraints and Windows APO device-targeting limits. It does not select a production component.
 - macOS arm64: BlackHole input loopback with the generated clip and a 600-second bounded-queue prototype run were observed; Discord received the microphone but the test tone was not heard. Combined Discord routing, local monitoring and end-to-end latency are **NOT VERIFIED**.
 - macOS packaged-driver installation, Intel macOS, Windows 11 audio processing, signed distribution, Discord and Meet routing through a Windows component are **NOT VERIFIED**.
 - This ADR changes documentation only. No production routing, installer, driver, permissions, dependencies or system defaults are changed by it.

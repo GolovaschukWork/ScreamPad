@@ -37,7 +37,7 @@ jobs:
               exit 1
             fi
           done
-      - name: Check no product identity/license assumptions
+      - name: Check approved product identity and license
         run: |
           grep -q 'Product name: ScreamPad' CLAUDE.md
-          grep -q 'License: TBD' CLAUDE.md
+          grep -q 'License: GPL-3.0-only' CLAUDE.md
