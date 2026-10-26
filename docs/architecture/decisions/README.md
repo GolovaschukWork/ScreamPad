@@ -17,5 +17,6 @@ Accepted decisions:
 
 Proposed (awaiting owner decision):
 - 0013 Microphone and virtual output routing (prototype and real-device measurements pending)
+- 0015 Integrated call audio routing (macOS guided virtual-device setup; Windows existing-microphone feasibility)
 
 Future ADRs required for: URL providers, FFmpeg distribution, non-destructive edit schema, license and signing provider.
