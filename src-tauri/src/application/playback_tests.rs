@@ -182,6 +182,58 @@ fn an_imported_sound_is_decoded_and_heard_through_the_stream() {
 }
 
 #[test]
+fn an_imported_library_sound_fans_out_to_local_and_virtual_streams() {
+    use crate::audio::backend::RouteDevices;
+    let harness = Harness::new();
+    harness.wait_running();
+    harness
+        .engine
+        .start_route(RouteDevices {
+            microphone_id: "physical-mic".into(),
+            virtual_output_id: "virtual".into(),
+        })
+        .expect("start route");
+    let sound = harness.import("tone.wav");
+    let service = harness.service(Arc::new(SymphoniaClipDecoder), limits());
+    service.play(sound.id).expect("real library play");
+    let local = harness.pump_until_sound();
+    let route = harness.shared.pump_route(256).expect("virtual output");
+    assert!(route.iter().any(|sample| sample.abs() > 0.001));
+    let local_peak = local
+        .iter()
+        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+    let route_peak = route
+        .iter()
+        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+    assert!(
+        route_peak < local_peak,
+        "chat clip is attenuated to leave speech room"
+    );
+    service.stop(sound.id).expect("stop both sinks");
+    assert!(
+        harness
+            .shared
+            .pump(512)
+            .expect("local")
+            .last()
+            .is_some_and(|value| *value == 0.0)
+    );
+    assert!(
+        harness
+            .shared
+            .pump_route(512)
+            .expect("route")
+            .last()
+            .is_some_and(|value| *value == 0.0)
+    );
+    harness.engine.stop_route().expect("stop capture");
+    service
+        .play(sound.id)
+        .expect("local playback without route");
+    assert!(harness.shared.pump_route(1).is_none());
+}
+
+#[test]
 fn triggering_a_sound_again_does_not_decode_it_again() {
     let harness = Harness::new();
     harness.wait_running();

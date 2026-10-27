@@ -14,6 +14,7 @@ describe("audio routing states", () => {
     expect(routingState({ status: "scanning" }, null)).toBe("scanning");
     expect(routingState({ status: "failed" }, null)).toBe("discoveryFailed");
     expect(routingState(ready([]), null)).toBe("setupRequired");
+    expect(routingState(ready([device({ input: false, kind: "unknown" })]), null)).toBe("setupRequired");
     expect(routingState(ready([device()]), null)).toBe("candidateDetected");
     expect(routingState(ready([device()]), selected)).toBe("deviceSelected");
   });
@@ -22,6 +23,7 @@ describe("audio routing states", () => {
     expect(routingState(ready([]), selected)).toBe("deviceUnavailable");
     expect(routingState(ready([device({ configuration: "unsupported" })]), null)).toBe("unsupportedConfiguration");
     expect(routingState(ready([device({ configuration: "unsupported" })]), selected)).toBe("unsupportedConfiguration");
+    expect(routingState(ready([device({ input: false })]), selected)).toBe("unsupportedConfiguration");
     expect(selectableDevices([device({ kind: "physical" }), device({ id: "unknown", kind: "unknown" })]).map((item) => item.id)).toEqual(["unknown"]);
   });
 });

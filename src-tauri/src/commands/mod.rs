@@ -7,4 +7,5 @@ pub mod devices;
 pub mod error;
 pub mod library;
 pub mod playback;
+pub mod routing;
 pub mod settings;

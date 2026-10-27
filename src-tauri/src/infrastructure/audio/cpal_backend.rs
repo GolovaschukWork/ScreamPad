@@ -6,8 +6,11 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, ErrorKind, Host, SampleFormat, Stream, StreamConfig, SupportedStreamConfig};
 
 use crate::audio::backend::{
-    AudioBackend, BackendError, EventSink, OutputFormat, RenderFn, RunningStream, StreamEvent,
+    AudioBackend, BackendError, EventSink, OpenRouteResult, OutputFormat, RenderFn, RouteDevices,
+    RunningStream, StreamEvent,
 };
+
+use super::cpal_route;
 
 pub struct CpalBackend {
     host: Host,
@@ -44,40 +47,106 @@ impl AudioBackend for CpalBackend {
             .host
             .default_output_device()
             .ok_or(BackendError::NoDevice)?;
-        let supported = float_config(&device)?;
-        let config: StreamConfig = supported.config();
-        let format = OutputFormat {
-            sample_rate: config.sample_rate,
-            channels: config.channels,
-        };
-
-        let mut render = make_render(format);
-        let stream = device
-            .build_output_stream::<f32, _, _>(
-                config,
-                move |data, _| render(data),
-                move |error| events(map_event(error.kind())),
-                None,
-            )
-            .map_err(|error| map_error(error.kind()))?;
-        // Streams do not start by themselves in cpal 0.18.
-        stream.play().map_err(|error| map_error(error.kind()))?;
-        Ok((Box::new(CpalStream { _stream: stream }), format))
+        open_output(device, make_render, events)
     }
 
     fn default_output_id(&mut self) -> Option<String> {
         let device = self.host.default_output_device()?;
         device.id().ok().map(|id| id.to_string())
     }
+
+    fn open_selected_output(
+        &mut self,
+        id: &str,
+        make_render: &mut dyn FnMut(OutputFormat) -> RenderFn,
+        events: EventSink,
+    ) -> Result<(Box<dyn RunningStream>, OutputFormat), BackendError> {
+        let device = self
+            .host
+            .output_devices()
+            .map_err(|_| BackendError::NoDevice)?
+            .find(|device| device.id().is_ok_and(|found| found.to_string() == id))
+            .ok_or(BackendError::NoDevice)?;
+        open_output(device, make_render, events)
+    }
+
+    fn open_route(
+        &mut self,
+        devices: &RouteDevices,
+        make_render: &mut dyn FnMut(OutputFormat) -> RenderFn,
+        events: EventSink,
+    ) -> OpenRouteResult {
+        cpal_route::open(&self.host, devices, make_render, events)
+    }
+
+    fn route_devices_available(&mut self, devices: &RouteDevices) -> bool {
+        cpal_route::devices_available(&self.host, devices)
+    }
 }
 
-/// The engine mixes in 32-bit float, so the device must offer it: the default configuration when it is float, otherwise a
-/// float configuration at the default rate and channel count. Other sample formats are not converted yet.
-fn float_config(device: &Device) -> Result<SupportedStreamConfig, BackendError> {
+fn open_output(
+    device: Device,
+    make_render: &mut dyn FnMut(OutputFormat) -> RenderFn,
+    events: EventSink,
+) -> Result<(Box<dyn RunningStream>, OutputFormat), BackendError> {
+    let supported = output_config(&device)?;
+    let config: StreamConfig = supported.config();
+    if !(1..=32).contains(&config.channels) {
+        return Err(BackendError::Unsupported);
+    }
+    let format = OutputFormat {
+        sample_rate: config.sample_rate,
+        channels: config.channels,
+    };
+
+    let render = make_render(format);
+    let stream = match supported.sample_format() {
+        SampleFormat::F32 => build_output::<f32>(&device, config, render, events),
+        SampleFormat::I16 => build_output::<i16>(&device, config, render, events),
+        SampleFormat::U16 => build_output::<u16>(&device, config, render, events),
+        _ => Err(BackendError::Unsupported),
+    }?;
+    // Streams do not start by themselves in cpal 0.18.
+    stream.play().map_err(|error| map_error(error.kind()))?;
+    Ok((Box::new(CpalStream { _stream: stream }), format))
+}
+
+fn build_output<T: cpal_route::Pcm>(
+    device: &Device,
+    config: StreamConfig,
+    mut render: RenderFn,
+    events: EventSink,
+) -> Result<Stream, BackendError> {
+    let channels = usize::from(config.channels);
+    device
+        .build_output_stream::<T, _, _>(
+            config,
+            move |data, _| {
+                let mut scratch = [0.0_f32; 2048];
+                let chunk_size = scratch.len() / channels * channels;
+                for chunk in data.chunks_mut(chunk_size) {
+                    let len = chunk.len();
+                    render(&mut scratch[..len]);
+                    for (target, source) in chunk.iter_mut().zip(&scratch[..len]) {
+                        *target = T::from_float(*source);
+                    }
+                }
+            },
+            move |error| events(map_event(error.kind())),
+            None,
+        )
+        .map_err(|error| map_error(error.kind()))
+}
+
+/// Prefer the existing float configuration; convert from the internal float mixer when a device only accepts integer PCM.
+fn output_config(device: &Device) -> Result<SupportedStreamConfig, BackendError> {
     let default = device
         .default_output_config()
         .map_err(|error| map_error(error.kind()))?;
-    if default.sample_format() == SampleFormat::F32 {
+    if matches!(
+        default.sample_format(),
+        SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U16
+    ) {
         return Ok(default);
     }
     let ranges = device
@@ -85,8 +154,10 @@ fn float_config(device: &Device) -> Result<SupportedStreamConfig, BackendError> 
         .map_err(|error| map_error(error.kind()))?;
     for range in ranges {
         let rate = default.sample_rate();
-        let fits = range.sample_format() == SampleFormat::F32
-            && range.channels() == default.channels()
+        let fits = matches!(
+            range.sample_format(),
+            SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U16
+        ) && range.channels() == default.channels()
             && (range.min_sample_rate()..=range.max_sample_rate()).contains(&rate);
         if fits {
             return Ok(range.with_sample_rate(rate));
@@ -95,7 +166,7 @@ fn float_config(device: &Device) -> Result<SupportedStreamConfig, BackendError> 
     Err(BackendError::Unsupported)
 }
 
-fn map_event(kind: ErrorKind) -> StreamEvent {
+pub(super) fn map_event(kind: ErrorKind) -> StreamEvent {
     match kind {
         ErrorKind::DeviceNotAvailable => StreamEvent::DeviceLost,
         ErrorKind::StreamInvalidated => StreamEvent::Invalidated,
@@ -105,7 +176,7 @@ fn map_event(kind: ErrorKind) -> StreamEvent {
     }
 }
 
-fn map_error(kind: ErrorKind) -> BackendError {
+pub(super) fn map_error(kind: ErrorKind) -> BackendError {
     match kind {
         ErrorKind::DeviceNotAvailable | ErrorKind::HostUnavailable => BackendError::NoDevice,
         ErrorKind::DeviceBusy | ErrorKind::ResourceExhausted => BackendError::Busy,

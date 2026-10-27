@@ -99,8 +99,14 @@ Use the separate [compatibility checklist](../../engineering/macos-audio-compone
 
 ## Validation status
 
-- **Verified:** upstream and temporary branded unsigned `v0.7.1` builds on macOS 26.2 arm64/Xcode 26.2 produced universal arm64/x86_64 binaries. Static source/installed-identity audit found distinct proposed IDs versus original BlackHole 2ch. Existing original BlackHole passed owner-observed Discord Mic Test mic-only, clip-only, combined at reduced clip level, and stop-capture checks on this Mac.
-- **NOT VERIFIED:** branded device installation/enumeration/coexistence, signed/notarized package, privilege/restart UX, upgrade/reinstall/repair/interruption/removal/rollback, Intel runtime, recipient-side Discord/Meet call, local monitoring, latency, and production routing.
+- **Verified:** upstream and temporary branded unsigned `v0.7.1` builds on macOS 26.2 arm64/Xcode 26.2 produced universal arm64/x86_64 binaries. The local unsigned 0.7.1.1 package passed the payload identity verifier and was installed by the owner. CoreAudio enumerates `ScreamPad Audio 2ch` and the original `BlackHole 2ch` under distinct UIDs; the MacBook microphone and speakers remain system defaults. Earlier isolated probes passed owner-observed Discord Mic Test mic-only, clip-only, combined at reduced clip level, and stop-capture checks, with inconsistent voice audibility in some combined runs.
+- **NOT VERIFIED:** signed/notarized package, privilege/restart UX on clean machines, upgrade/reinstall/repair/interruption/removal/rollback, Intel runtime, recipient-side Discord/Meet call, production app Mic Test, local monitoring, and observed latency.
+
+## Implementation notes (production-routing feature PR)
+
+The macOS app now extends the existing CPAL audio worker with an explicit microphone-to-selected-virtual-output route. Real library clips fan out to that route and the local output; microphone samples never enter the local mixer. Device choices live in session state. The app opens a user-selected local package in standard Installer only after a click. It does not bundle a driver, install it itself, elevate, or change system defaults. This development-only chooser does not satisfy the fixed signed-package contract above; replace it with a verified, bundled package before public distribution.
+
+The local 0.7.1.1 unsigned package is a development artifact only. Developer ID Application/Installer signing, notarization, exact corresponding source publication, clean-machine install, upgrade, removal and rollback remain release gates. A production stream starting successfully does not establish Discord delivery; the combined production-app Mic Test and a remote-recipient call must be recorded separately. The [production-route validation record](../../engineering/macos-production-route-validation.md) reports the opt-in ten-minute CPAL run, actual configuration, queue bounds, drops, underflows, and clock delta without saving microphone audio.
 
 The owner accepted this architectural direction on 2026-10-26 subject to the identity, audit, GPL, signing, lifecycle, and release-gate clarifications recorded here. Acceptance authorizes architecture and reviewable prototypes; it does **not** authorize production distribution, privileged installation, or automatic merge.
 

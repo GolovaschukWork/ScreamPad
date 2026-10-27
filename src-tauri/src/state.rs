@@ -153,6 +153,13 @@ impl StorageState {
 /// How the user chooses a file to import. Production uses the native dialog; tests use a fixed answer.
 pub struct PickerState(pub Arc<dyn FilePicker>);
 
+/// The explicit user action that opens a locally selected package in macOS Installer.
+pub struct InstallerState(
+    pub  Arc<
+        dyn Fn() -> Result<bool, crate::infrastructure::dialog::InstallerOpenError> + Send + Sync,
+    >,
+);
+
 /// The audio side of the app: the engine that keeps the output stream alive and the service that plays library sounds.
 /// Unavailable when the library could not be opened or the engine thread could not start.
 pub enum PlaybackState {

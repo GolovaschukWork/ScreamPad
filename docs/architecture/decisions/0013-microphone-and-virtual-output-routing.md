@@ -1,12 +1,12 @@
 # ADR 0013: Microphone and Virtual Output Routing
 
-- Status: Proposed
+- Status: Accepted (owner authorized macOS production integration on 2026-10-26; release validation remains open)
 - Date: 2026-10-25
 - Owner: project owner
 
 ## Context
 
-ScreamPad currently plays library clips to one system-default output. ADR 0003 requires microphone plus clip routing to a user-installed virtual device for the MVP. ADR 0006 explicitly excludes microphone capture, monitoring and a second output clock. Those are separate streams with independent clocks even when their nominal sample rates match. Sending microphone audio to local speakers can produce feedback. The owner approved an isolated macOS prototype and this Proposed ADR; production integration still requires a separate architecture decision.
+ScreamPad initially played library clips to one system-default output. ADR 0003 requires microphone plus clip routing to a virtual device for the MVP. ADR 0006 explicitly excluded microphone capture, monitoring and a second output clock from its first slice. Those are separate streams with independent clocks even when their nominal sample rates match. Sending microphone audio to local speakers can produce feedback. The owner first approved an isolated macOS prototype, then authorized production integration under this decision on 2026-10-26.
 
 ## Options
 
@@ -72,11 +72,15 @@ These are owner-observed Discord Mic Test results, not a recipient-side call tes
 ## Validation still required
 
 1. Repeat microphone-only, clip-only and combined checks in a real Discord call with a remote recipient, recording voice-processing settings and the device/app versions. Determine a robust mic/clip gain policy with representative clips; the original test tone and full-level speech file both failed different Mic Test scenarios.
-2. Resolve physical-monitor selection using reliable role/identity evidence, then verify that local monitoring contains only the clip. Do not route the microphone to speakers or reuse the virtual output as the monitor.
+2. Verify the production local-output selector on real speakers and headphones, including the case where CPAL reports their type as `Unknown`. Confirm that local monitoring contains only the clip. Do not route the microphone to speakers or reuse the virtual output as the monitor.
 3. Measure end-to-end latency with an actual capture/measurement method if needed; do not infer it from queue depth or buffer sizes. Exercise device failure and recovery on real hardware.
 
 As of 2026-10-26, Discord Mic Test with speech-file mic-only, clip-only, combined (at 0.2 clip amplitude) and capture-stop scenarios has been observed on this macOS arm64 machine. Recipient-side Discord and Meet calls, local monitoring, transient microphone-start recovery, actual observed latency, Windows 11 and Intel macOS are **NOT VERIFIED**. The real ten-minute macOS arm64 queue measurement above is complete; it is not a production routing validation.
 
 ## Production integration path and risks
 
-After owner acceptance of this ADR and successful real-device measurements, add an input and selected-output port beside the existing default-output engine, keeping the callback rules of ADR 0006. Define typed device selection and state/events, explicit capture start/stop and permission UX, and a separate approved settings migration only if device choices need persistence. Test stream recovery, drift, clip/voice gain and feedback on Windows and both Mac architectures before calling the route reliable. The current prototype's linear interpolation, 40 ms target and CPAL device classification are provisional; compare audible quality and queue trends before choosing production resampling and monitoring policy. Virtual-device installation and Windows existing-microphone processing are addressed separately by Proposed ADR 0015.
+The owner authorized production integration in one feature PR on 2026-10-26. The implementation keeps ADR 0006's existing `AudioEngine` control worker and local mixer. On explicit Start Routing, that worker additionally owns a selected CPAL microphone stream and a selected virtual-output stream. A second mixer receives the same validated library clip at the virtual output format; the local mixer receives only the clip. The virtual callback reads a bounded microphone queue, corrects bounded clock drift, mixes microphone and attenuated clip, converts to the device sample format, and reports counters. The local output is selectable and cannot be the same device as the virtual route. Route failure or Stop closes capture without stopping local playback. The selected device IDs remain session-only.
+
+This accepts the bounded-queue approach in option A while replacing the prototype's separate monitor callback with the existing local engine. The prototype measurements above remain historical evidence. Production Discord delivery, local monitor audibility and remote-recipient behavior require new verification before release claims.
+
+The current linear interpolation and 40 ms queue target are provisional until audible quality and drift are reviewed across supported hardware. Test stream recovery, clip/voice balance and feedback on both Mac architectures before release. Windows processing and any persistent device choice remain separate decisions under Proposed ADR 0015; this macOS acceptance does not authorize a Windows component or a SQLite migration.

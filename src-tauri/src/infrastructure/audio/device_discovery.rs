@@ -95,7 +95,8 @@ fn record(
 fn classify(kind: DeviceType) -> DeviceKind {
     match kind {
         DeviceType::Virtual => DeviceKind::Virtual,
-        DeviceType::Speaker
+        DeviceType::Microphone
+        | DeviceType::Speaker
         | DeviceType::Headphones
         | DeviceType::Headset
         | DeviceType::Earpiece
@@ -135,8 +136,8 @@ fn compatible_values(format: SampleFormat, channels: u16, min_rate: u32, max_rat
     matches!(
         format,
         SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U16
-    ) && (1..=32).contains(&channels)
-        && min_rate <= 384_000
+    ) && (1..=2).contains(&channels)
+        && min_rate <= 192_000
         && max_rate >= 8_000
 }
 
@@ -148,6 +149,7 @@ mod tests {
     fn classification_never_uses_a_provider_name() {
         assert_eq!(classify(DeviceType::Virtual), DeviceKind::Virtual);
         assert_eq!(classify(DeviceType::Speaker), DeviceKind::Physical);
+        assert_eq!(classify(DeviceType::Microphone), DeviceKind::Physical);
         assert_eq!(classify(DeviceType::Unknown), DeviceKind::Unknown);
     }
 
@@ -208,6 +210,7 @@ mod tests {
         assert!(compatible_values(SampleFormat::F32, 2, 44_100, 96_000));
         assert!(!compatible_values(SampleFormat::F64, 2, 44_100, 96_000));
         assert!(!compatible_values(SampleFormat::F32, 0, 44_100, 96_000));
+        assert!(!compatible_values(SampleFormat::F32, 16, 44_100, 96_000));
         assert!(!compatible_values(SampleFormat::F32, 33, 44_100, 96_000));
         assert!(!compatible_values(SampleFormat::F32, 2, 1_000, 7_999));
     }

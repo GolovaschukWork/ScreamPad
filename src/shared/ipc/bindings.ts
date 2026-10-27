@@ -35,6 +35,15 @@ export const commands = {
 	audioStatus: () => typedError<AudioStatus_Serialize, AppError>(__TAURI_INVOKE("audio_status")),
 	/**  Asks a failed audio output to try again now. */
 	retryAudio: () => typedError<null, AppError>(__TAURI_INVOKE("retry_audio")),
+	callRoutingStatus: () => typedError<RoutingStatusDto_Serialize, AppError>(__TAURI_INVOKE("call_routing_status")),
+	startCallRouting: (microphoneId: string, virtualOutputId: string) => typedError<RoutingStatusDto_Serialize, AppError>(__TAURI_INVOKE("start_call_routing", { microphoneId, virtualOutputId })),
+	stopCallRouting: () => typedError<null, AppError>(__TAURI_INVOKE("stop_call_routing")),
+	setLocalMonitorOutput: (deviceId: string | null) => typedError<null, AppError>(__TAURI_INVOKE("set_local_monitor_output", { deviceId })),
+	/**
+	 *  After an explicit click, let the user choose a locally built package and open it in macOS Installer.
+	 *  The app never installs or elevates itself; the standard Installer owns confirmation and privileges.
+	 */
+	openAudioInstaller: () => typedError<boolean, AppError>(__TAURI_INVOKE("open_audio_installer")),
 	/**  Reads the stored settings. A damaged settings row is reported as `storageCorrupt`, never replaced by defaults. */
 	getSettings: () => typedError<SettingsDto, AppError>(__TAURI_INVOKE("get_settings")),
 	/**  Stores the language, the master volume and the theme, and applies the volume to the audio output. */
@@ -53,19 +62,19 @@ export const events = {
  *  The error contract of the IPC layer. It carries a machine-readable `kind` and, where useful, numbers.
  *  It never carries free text, file names or paths: the UI maps each `kind` to a message.
  */
-export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kind: "storageCorrupt" } | { kind: "storageTooNew"; database: number; supported: number } | { kind: "storageMigration" } | { kind: "storageConstraint" } | { kind: "storageIo" } | { kind: "importBusy" } | { kind: "importCancelled" } | { kind: "importSourceUnreadable" } | { kind: "importSourceNotRegularFile" } | { kind: "importSourceChanged" } | { kind: "importEmpty" } | { kind: "importTooLarge" } | { kind: "importStagingQuotaExceeded" } | { kind: "importDiskFull" } | { kind: "importUnsupportedFormat" } | { kind: "importCorrupt" } | { kind: "importTooLong" } | { kind: "importDecodeTimeout" } | { kind: "libraryInconsistent" } | 
+export type AppError = { kind: "storageBusy" } | { kind: "storageFull" } | { kind: "storageCorrupt" } | { kind: "storageTooNew"; database: number; supported: number } | { kind: "storageMigration" } | { kind: "storageConstraint" } | { kind: "storageIo" } | { kind: "importBusy" } | { kind: "importCancelled" } | { kind: "importSourceUnreadable" } | { kind: "importSourceNotRegularFile" } | { kind: "importSourceChanged" } | { kind: "importEmpty" } | { kind: "importTooLarge" } | { kind: "importStagingQuotaExceeded" } | { kind: "importDiskFull" } | { kind: "importUnsupportedFormat" } | { kind: "importCorrupt" } | { kind: "importTooLong" } | { kind: "importDecodeTimeout" } | { kind: "libraryInconsistent" } |
 /**  There is no running audio output right now (starting, reconnecting, failed or stopped). */
-{ kind: "audioUnavailable" } | 
+{ kind: "audioUnavailable" } |
 /**  The audio engine is busy or did not answer in time. */
-{ kind: "audioBusy" } | 
+{ kind: "audioBusy" } |
 /**  Reading the OS audio-device list failed; local playback may still work. */
-{ kind: "deviceDiscoveryFailed" } | { kind: "soundNotFound" } | 
+{ kind: "deviceDiscoveryFailed" } | { kind: "routingDeviceUnavailable" } | { kind: "routingPermissionDenied" } | { kind: "routingUnsupported" } | { kind: "soundNotFound" } |
 /**  A setting or sound option is outside its range or names an unsupported choice. */
-{ kind: "invalidSetting" } | 
+{ kind: "invalidSetting" } |
 /**  The sound is too long to be decoded into memory for playback. */
-{ kind: "playbackClipTooLong" } | { kind: "playbackDecodeTimeout" } | 
+{ kind: "playbackClipTooLong" } | { kind: "playbackDecodeTimeout" } |
 /**  The sound's managed file is gone. The database row is kept. */
-{ kind: "mediaMissing" } | 
+{ kind: "mediaMissing" } |
 /**  The sound's managed file does not match what was recorded. */
 { kind: "mediaCorrupt" } | { kind: "internal" };
 
@@ -138,6 +147,46 @@ export type PlayResult = "started" | "restarted" | "stopped" | "ignored";
 export type PlayingChanged = {
 	/**  Ids of the sounds with a voice playing, ascending. */
 	ids: number[],
+};
+
+export type RoutingCountersDto = {
+	inputRate: number,
+	outputRate: number,
+	queueCapacity: number,
+	inputBufferFrames: number,
+	outputBufferFrames: number,
+	captured: number,
+	rendered: number,
+	occupancy: number,
+	overflow: number,
+	underflow: number,
+	discarded: number,
+	maxOccupancy: number,
+	clipped: number,
+	xruns: number,
+	clipErrors: number,
+};
+
+export type RoutingFailureDto = "noDevice" | "permissionDenied" | "unsupported" | "other";
+
+export type RoutingStateDto = "stopped" | "running" | "failed";
+
+export type RoutingStatusDto = RoutingStatusDto_Serialize | RoutingStatusDto_Deserialize;
+
+export type RoutingStatusDto_Deserialize = {
+	state: RoutingStateDto,
+	failure?: RoutingFailureDto | null,
+	sampleRate?: number | null,
+	channels?: number | null,
+	counters?: RoutingCountersDto | null,
+};
+
+export type RoutingStatusDto_Serialize = {
+	state: RoutingStateDto,
+	failure: RoutingFailureDto | null,
+	sampleRate: number | null,
+	channels: number | null,
+	counters: RoutingCountersDto | null,
 };
 
 /**  Application settings as the UI sees them. */

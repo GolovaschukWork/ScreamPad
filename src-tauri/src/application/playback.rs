@@ -86,6 +86,7 @@ pub struct PlaybackService {
     decoder: Arc<dyn ClipDecoder>,
     engine: Arc<AudioEngine>,
     cache: Mutex<ClipCache>,
+    route_cache: Mutex<ClipCache>,
     limits: PlaybackLimits,
     /// Serializes the decision "is this sound playing, so what do I do" with the engine call that carries it out, so that two
     /// quick triggers of one sound cannot both decide on stale information.
@@ -106,6 +107,7 @@ impl PlaybackService {
             decoder,
             engine,
             cache: Mutex::new(ClipCache::new(limits.cache_bytes)),
+            route_cache: Mutex::new(ClipCache::new(limits.cache_bytes)),
             limits,
             trigger: Mutex::new(()),
         }
@@ -149,6 +151,23 @@ impl PlaybackService {
                 .format
                 .ok_or(PlaybackError::AudioUnavailable)?;
             let clip = self.clip_for(&sound, format)?;
+            let route_clip = self
+                .engine
+                .route_snapshot()
+                .format
+                .and_then(|route_format| {
+                    if route_format == format {
+                        Some(Arc::clone(&clip))
+                    } else {
+                        match self.clip_for_route(&sound, route_format) {
+                            Ok(clip) => Some(clip),
+                            Err(_) => {
+                                self.engine.record_route_clip_failure();
+                                None
+                            }
+                        }
+                    }
+                });
             // The clip took time to prepare: decide again, now, together with starting it.
             let _decision = self.trigger_lock();
             let playing = self.engine.playing(tag).map_err(map_engine_error)?;
@@ -164,7 +183,10 @@ impl PlaybackService {
                 }
                 TriggerAction::Start => {}
             }
-            match self.engine.play_tagged(clip, sound.gain.linear(), tag) {
+            match self
+                .engine
+                .play_tagged_routed(clip, route_clip, sound.gain.linear(), tag)
+            {
                 Ok(()) if action == TriggerAction::StopThenStart => {
                     return Ok(PlayOutcome::Restarted);
                 }
@@ -212,16 +234,30 @@ impl PlaybackService {
         self.engine.stop_all().map_err(map_engine_error)
     }
 
-    fn cache(&self) -> std::sync::MutexGuard<'_, ClipCache> {
-        // The cache only holds clips; a panic elsewhere cannot leave it half updated in a harmful way.
-        self.cache
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    fn clip_for(&self, sound: &Sound, format: OutputFormat) -> Result<Arc<Clip>, PlaybackError> {
+        self.clip_for_cache(sound, format, &self.cache)
     }
 
-    fn clip_for(&self, sound: &Sound, format: OutputFormat) -> Result<Arc<Clip>, PlaybackError> {
+    fn clip_for_route(
+        &self,
+        sound: &Sound,
+        format: OutputFormat,
+    ) -> Result<Arc<Clip>, PlaybackError> {
+        self.clip_for_cache(sound, format, &self.route_cache)
+    }
+
+    fn clip_for_cache(
+        &self,
+        sound: &Sound,
+        format: OutputFormat,
+        cache: &Mutex<ClipCache>,
+    ) -> Result<Arc<Clip>, PlaybackError> {
         let sound_id = sound.id;
-        if let Some(clip) = self.cache().get(sound_id, format) {
+        if let Some(clip) = cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(sound_id, format)
+        {
             return Ok(clip);
         }
 
@@ -245,7 +281,10 @@ impl PlaybackService {
             .decoder
             .decode(file, format, &limits, &CancelToken::new())
             .map_err(map_decode_error)?;
-        self.cache().insert(sound_id, format, Arc::clone(&clip));
+        cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(sound_id, format, Arc::clone(&clip));
         Ok(clip)
     }
 }

@@ -13,7 +13,7 @@ use tauri::Manager;
 
 use commands::error::AppError;
 use infrastructure::dialog::TauriFilePicker;
-use state::{PickerState, PlaybackState, StorageState};
+use state::{InstallerState, PickerState, PlaybackState, StorageState};
 
 pub fn run() {
     let ipc = ipc::builder::<tauri::Wry>();
@@ -37,6 +37,10 @@ pub fn run() {
             app.manage(PickerState(std::sync::Arc::new(TauriFilePicker::new(
                 app.handle().clone(),
             ))));
+            let installer_app = app.handle().clone();
+            app.manage(InstallerState(std::sync::Arc::new(move || {
+                infrastructure::dialog::open_audio_installer(&installer_app)
+            })));
             if let Some(library) = library {
                 // Cleanup after interrupted imports runs in the background and never delays the window.
                 tauri::async_runtime::spawn_blocking(move || {

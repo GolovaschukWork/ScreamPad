@@ -15,6 +15,8 @@ export type RoutingState =
   | "unsupportedConfiguration";
 
 let selectedDevice: SelectedDevice | null = null;
+let selectedMicrophone: SelectedDevice | null = null;
+let selectedMonitor: SelectedDevice | null = null;
 
 export function getSelectedDevice(): SelectedDevice | null {
   return selectedDevice;
@@ -24,6 +26,11 @@ export function setSelectedDevice(device: SelectedDevice | null): void {
   selectedDevice = device;
 }
 
+export function getSelectedMicrophone(): SelectedDevice | null { return selectedMicrophone; }
+export function setSelectedMicrophone(device: SelectedDevice | null): void { selectedMicrophone = device; }
+export function getSelectedMonitor(): SelectedDevice | null { return selectedMonitor; }
+export function setSelectedMonitor(device: SelectedDevice | null): void { selectedMonitor = device; }
+
 export function routingState(discovery: DiscoveryState, selected: SelectedDevice | null): RoutingState {
   if (discovery.status === "scanning") return "scanning";
   if (discovery.status === "failed") return "discoveryFailed";
@@ -32,10 +39,12 @@ export function routingState(discovery: DiscoveryState, selected: SelectedDevice
   if (selected) {
     const current = devices.find((device) => device.id === selected.id && device.output);
     if (!current) return "deviceUnavailable";
-    return current.configuration === "unsupported" ? "unsupportedConfiguration" : "deviceSelected";
+    return !current.input || current.configuration === "unsupported"
+      ? "unsupportedConfiguration"
+      : "deviceSelected";
   }
 
-  const candidates = selectableDevices(devices);
+  const candidates = selectableDevices(devices).filter((device) => device.input);
   if (candidates.some((device) => device.configuration !== "unsupported")) return "candidateDetected";
   if (candidates.length > 0) return "unsupportedConfiguration";
   return "setupRequired";
