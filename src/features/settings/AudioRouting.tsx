@@ -7,6 +7,7 @@ import { commands, type AudioDeviceDto, type RoutingStatusDto } from "../../shar
 import { errorText } from "../../shared/ipc/errors";
 import { SettingsSection } from "./SettingsSection";
 import {
+  automaticVirtualOutput,
   getSelectedDevice,
   getSelectedMicrophone,
   getSelectedMonitor,
@@ -65,7 +66,14 @@ export function AudioRouting() {
     };
   }, [refresh]);
 
-  const state = routingState(discovery, selected);
+  const allDevices = discovery.status === "ready" ? discovery.result.devices : [];
+  const running = route?.state === "running";
+  const automatic = automaticVirtualOutput(allDevices);
+  const saved = selected && allDevices.find((device) => device.id === selected.id);
+  const virtualOutput = running ? saved ?? null : automatic ?? saved ?? null;
+  const state = routingState(discovery, virtualOutput
+    ? { id: virtualOutput.id, name: virtualOutput.name }
+    : selected);
   const stateText = {
     scanning: t("routing.state.scanning"),
     setupRequired: t("routing.state.setupRequired"),
@@ -81,23 +89,23 @@ export function AudioRouting() {
     unsupported: t("routing.failure.unsupported"),
     other: t("routing.failure.other"),
   };
-  const devices = discovery.status === "ready" ? selectableDevices(discovery.result.devices) : [];
-  const virtual = devices.filter((device) => device.kind === "virtual");
-  const unknown = devices.filter((device) => device.kind === "unknown");
-  const allDevices = discovery.status === "ready" ? discovery.result.devices : [];
-  const microphones = allDevices.filter((device) => device.input && device.kind !== "virtual" && device.id !== selected?.id);
-  const monitors = allDevices.filter((device) => device.output && device.kind !== "virtual" && device.id !== selected?.id);
-  const running = route?.state === "running";
-  const canStart = Boolean(selected && microphone && selected.id !== microphone.id &&
-    allDevices.some((device) => device.id === selected.id && device.input && device.output && device.configuration === "supported") &&
+  const devices = selectableDevices(allDevices);
+  const microphones = allDevices.filter((device) => device.input && device.kind !== "virtual" && device.id !== virtualOutput?.id);
+  const monitors = allDevices.filter((device) => device.output && device.kind !== "virtual" && device.id !== virtualOutput?.id);
+  const canStart = Boolean(virtualOutput && microphone && virtualOutput.id !== microphone.id &&
+    virtualOutput.input && virtualOutput.output && virtualOutput.configuration !== "unsupported" &&
     allDevices.some((device) => device.id === microphone.id && device.input && device.kind !== "virtual"));
 
   const start = async () => {
-    if (!selected || !microphone || !canStart) return;
+    if (!virtualOutput || !microphone || !canStart) return;
     setBusy(true); setActionError(null);
     try {
-      const result = await commands.startCallRouting(microphone.id, selected.id);
-      if (result.status === "ok") setRoute(result.data);
+      const result = await commands.startCallRouting(microphone.id, virtualOutput.id);
+      if (result.status === "ok") {
+        const value = { id: virtualOutput.id, name: virtualOutput.name };
+        setSelected(value); setSelectedDevice(value);
+        setRoute(result.data);
+      }
       else setActionError(errorText(t, result.error));
     } catch { setActionError(t("errors.backendUnreachable")); }
     setBusy(false);
@@ -163,21 +171,12 @@ export function AudioRouting() {
         {discovery.status === "ready" && discovery.result.incomplete && (
           <p role="status" className="text-muted-foreground">{t("routing.incomplete")}</p>
         )}
-        {state === "deviceUnavailable" && selected && (
-          <p className="text-destructive">{t("routing.unavailableName", { name: selected.name })}</p>
+        {discovery.status === "ready" && selected && !saved && (
+          <p aria-live="polite" className="text-destructive">{t("routing.unavailableName", { name: selected.name })}</p>
         )}
-        {discovery.status === "ready" && devices.length > 0 && (
-          <div className="space-y-4">
-            {virtual.length > 0 && (
-              <DeviceGroup title={t("routing.detectedOutputs")} devices={virtual} selected={selected} onChoose={choose} disabled={running} />
-            )}
-            {unknown.length > 0 && (
-              <DeviceGroup title={t("routing.otherOutputs")} devices={unknown} selected={selected} onChoose={choose} disabled={running} />
-            )}
-          </div>
-        )}
-        {selected && state === "deviceSelected" && !running && (
-          <p className="text-muted-foreground">{t("routing.selectionHint")}</p>
+        {virtualOutput && <p className="text-muted-foreground">{t("routing.automaticOutput", { name: virtualOutput.name })}</p>}
+        {discovery.status === "ready" && !automatic && devices.length > 0 && !running && (
+          <DeviceGroup title={t("routing.chooseVirtualOutput")} devices={devices} selected={selected} onChoose={choose} />
         )}
         <div className="space-y-3 border-t pt-4">
           <h3 className="font-medium">{t("routing.controlsTitle")}</h3>
@@ -202,7 +201,7 @@ export function AudioRouting() {
           {route?.failure && <p role="alert" className="text-destructive">{failureText[route.failure]}</p>}
           {running && (route.counters?.clipErrors ?? 0) > 0 && <p role="alert" className="text-destructive">{t("routing.clipFailed")}</p>}
           {actionError && <p role="alert" className="text-destructive">{actionError}</p>}
-          {running && <p className="text-muted-foreground">{t("routing.chatInputHint", { name: selected?.name ?? "" })}</p>}
+          {running && <p className="text-muted-foreground">{t("routing.chatInputHint", { name: virtualOutput?.name ?? selected?.name ?? "" })}</p>}
         </div>
         {state === "setupRequired" && (
           <div className="space-y-2 border-t pt-4">
@@ -212,7 +211,7 @@ export function AudioRouting() {
             {installerOpened && <p role="status">{t("routing.installerOpened")}</p>}
           </div>
         )}
-        <div className="space-y-2 border-t pt-4">
+        {(state === "setupRequired" || state === "unsupportedConfiguration") && <div className="space-y-2 border-t pt-4">
           <h3 className="font-medium">{t("routing.manualTitle")}</h3>
           <ol className="list-inside list-decimal space-y-1 text-muted-foreground">
             <li>{t("routing.stepDownload")}</li>
@@ -231,7 +230,7 @@ export function AudioRouting() {
             </a>
           </p>
           {linkFailed && <p role="alert" className="text-destructive">{t("routing.linkFailed")}</p>}
-        </div>
+        </div>}
       </div>
     </SettingsSection>
   );
@@ -242,13 +241,11 @@ function DeviceGroup({
   devices,
   selected,
   onChoose,
-  disabled,
 }: {
   title: string;
   devices: AudioDeviceDto[];
   selected: SelectedDevice | null;
   onChoose: (device: AudioDeviceDto) => void;
-  disabled: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -272,7 +269,7 @@ function DeviceGroup({
                 variant={isSelected ? "secondary" : "outline"}
                 aria-label={t(isSelected ? "routing.selectedDevice" : "routing.selectDevice", { name: device.name })}
                 aria-pressed={isSelected}
-                disabled={disabled || !device.input || device.configuration === "unsupported"}
+                disabled={!device.input || device.configuration === "unsupported"}
                 onClick={() => onChoose(device)}
               >
                 {t(isSelected ? "routing.selected" : "routing.select")}

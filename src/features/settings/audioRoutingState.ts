@@ -53,3 +53,16 @@ export function routingState(discovery: DiscoveryState, selected: SelectedDevice
 export function selectableDevices(devices: AudioDeviceDto[]): AudioDeviceDto[] {
   return devices.filter((device) => device.output && device.kind !== "physical");
 }
+
+// A known, uniquely identified virtual route needs no extra choice in the common path.
+// Never guess among third-party devices or from a display name.
+const SCREAM_PAD_AUDIO_ID = "coreaudio:io.github.golovaschukwork.screampad.audio.device.2ch";
+
+export function automaticVirtualOutput(devices: AudioDeviceDto[]): AudioDeviceDto | null {
+  const compatible = devices.filter((device) =>
+    device.input && device.output && device.configuration === "supported");
+  const own = compatible.find((device) => device.id === SCREAM_PAD_AUDIO_ID);
+  if (own) return own;
+  const virtual = compatible.filter((device) => device.kind === "virtual");
+  return virtual.length === 1 ? virtual[0] : null;
+}

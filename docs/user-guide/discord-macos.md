@@ -1,8 +1,8 @@
 # How to use ScreamPad with Discord on macOS
 
 1. Open **Settings → Audio Routing** and select your physical microphone. ScreamPad asks macOS for microphone access only after you press **Start Routing**. If access is denied, enable ScreamPad under **System Settings → Privacy & Security → Microphone**.
-2. Select a compatible virtual output, such as **ScreamPad Audio 2ch** or an already installed **BlackHole 2ch**. The device must expose both output and input roles. If it is missing, use **Refresh Devices** after installing it.
-3. Select your headphones or speakers as **Local monitoring output**, or keep **System output** if it is a physical device. Never choose the virtual output for local monitoring. Local playback does not require a virtual device.
+2. ScreamPad automatically uses **ScreamPad Audio 2ch** when available, or the only compatible virtual output reported by macOS. If multiple other devices or only unclassified outputs are found, make a one-time virtual-device choice when prompted. If no suitable device appears, use **Refresh Devices** after installation. The selected device must expose both output and input roles.
+3. Select your headphones or speakers as **Local monitoring output**, or keep **System output** if it is a physical device. Local playback does not require a virtual device.
 4. Press **Start Routing**. The status must say **Routing active**. This means ScreamPad opened the selected microphone and virtual output; it does not prove Discord has received them.
 5. In Discord **Voice & Video**, choose the matching virtual device as **Input Device**. Open **Mic Test**, speak, and press **Play** on an imported sound. The clip should also play through the selected local output; your own microphone is not sent to that output. If Discord suppresses part of the signal, check its input sensitivity, noise suppression and echo cancellation settings during the test.
 6. Press **Stop Routing** to close capture and the virtual-output stream. In Discord, return to your normal microphone if you want to keep speaking without ScreamPad. ScreamPad does not change the macOS default microphone or Discord's input setting.
