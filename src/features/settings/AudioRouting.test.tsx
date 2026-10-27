@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AudioDeviceDto, AudioDevicesDto } from "../../shared/ipc/bindings";
+import type { AudioDeviceDto, AudioDevicesDto, RoutingCountersDto } from "../../shared/ipc/bindings";
 import { backend, commands, resetBackend } from "../../test/fakeBindings";
 import { AudioRouting } from "./AudioRouting";
 import { setSelectedDevice, setSelectedMicrophone, setSelectedMonitor } from "./audioRoutingState";
@@ -134,8 +134,11 @@ describe("audio routing onboarding", () => {
       device({ id: "coreaudio:speakers", name: "Speakers", kind: "unknown", input: false, output: true }),
     ]);
     render(<AudioRouting />);
+    expect(await screen.findByText(/until you choose a physical microphone and start routing/)).not.toBeNull();
+    expect(screen.getByRole("status").textContent?.match(/Routing stopped/g)?.length).toBe(1);
     await user.click(await screen.findByRole("combobox", { name: "Physical microphone" }));
     await user.click(await screen.findByRole("option", { name: "Built-in Microphone" }));
+    expect(screen.getByText("Discord receives silence until you start routing.")).not.toBeNull();
     await user.click(screen.getByRole("combobox", { name: "Local monitoring output" }));
     await user.click(await screen.findByRole("option", { name: "Speakers" }));
     expect(commands.setLocalMonitorOutput).toHaveBeenCalledWith("coreaudio:speakers");
@@ -143,9 +146,29 @@ describe("audio routing onboarding", () => {
     await user.click(screen.getByRole("button", { name: "Start Routing" }));
     expect(commands.startCallRouting).toHaveBeenCalledWith("coreaudio:mic", "coreaudio:virtual-1");
     expect((await screen.findByRole("status")).textContent).toContain("Routing active");
+    expect(screen.getByText(/turn off Noise Suppression \(Krisp\)/)).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "Stop Routing" }));
     expect(commands.stopCallRouting).toHaveBeenCalled();
     expect((await screen.findByRole("status")).textContent).toContain("Virtual device ready");
+    expect(screen.getByText("Discord receives silence until you start routing.")).not.toBeNull();
+  });
+
+  it("shows microphone and virtual output levels without claiming Discord delivery", async () => {
+    const counters: RoutingCountersDto = {
+      inputRate: 48000, outputRate: 48000, queueCapacity: 9600,
+      inputBufferFrames: 512, outputBufferFrames: 512, captured: 48000,
+      rendered: 48000, occupancy: 1920, overflow: 0, underflow: 0,
+      discarded: 0, maxOccupancy: 2200, clipped: 0, xruns: 0,
+      clipErrors: 0, inputLevelPpm: 10000, micLevelPpm: 10000, outputLevelPpm: 100000,
+    };
+    backend.route = { state: "running", failure: null, sampleRate: 48000, channels: 2, counters };
+    backend.audioDevices = result([device()]);
+    render(<AudioRouting />);
+    expect(await screen.findByText("Captured input: -40 dBFS")).not.toBeNull();
+    expect(screen.getByText("Voice in mix: -40 dBFS")).not.toBeNull();
+    expect(screen.getByText("Virtual output: -20 dBFS")).not.toBeNull();
+    expect(screen.getByText(/Captured frames: 48000/)).not.toBeNull();
+    expect(screen.getByText(/not what Discord receives/)).not.toBeNull();
   });
 
   it("shows only microphone and monitor choices when the branded route is available", async () => {

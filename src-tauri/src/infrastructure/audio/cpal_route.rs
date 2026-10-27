@@ -1,7 +1,7 @@
 //! Selected CPAL capture/output pair. The existing audio worker owns both streams.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{
@@ -19,6 +19,16 @@ const QUEUE_MS: usize = 200;
 const TARGET_MS: usize = 40;
 const SCRATCH_SAMPLES: usize = 2048;
 const METER_SCALE: f64 = 100_000_000.0;
+const LEVEL_SCALE: f64 = 1_000_000.0;
+
+fn update_level(level: &AtomicU64, energy: f64, frames: usize) {
+    if frames == 0 {
+        return;
+    }
+    let current = ((energy / frames as f64).sqrt().clamp(0.0, 1.0) * LEVEL_SCALE) as u64;
+    let previous = level.load(Ordering::Relaxed);
+    level.store(current.max(previous * 99 / 100), Ordering::Relaxed);
+}
 
 struct RouteStreams {
     output: Stream,
@@ -96,6 +106,7 @@ fn mix_frame<T: Pcm>(output: &mut [T], clip: &[f32], microphone: f32) -> u64 {
 
 struct MicReader {
     rx: Consumer<f32>,
+    primed: bool,
     phase: f64,
     previous: f32,
     next: f32,
@@ -114,6 +125,7 @@ impl MicReader {
     ) -> Self {
         Self {
             rx,
+            primed: false,
             phase: 0.0,
             previous: 0.0,
             next: 0.0,
@@ -132,6 +144,18 @@ impl MicReader {
         self.metrics
             .max_occupancy
             .fetch_max(occupancy as u64, Ordering::Relaxed);
+        // Keep a small reserve before reading from an independently clocked input.
+        // After an underrun, refill it instead of repeatedly alternating between
+        // one microphone frame and silence at the output callback boundary.
+        if !self.primed {
+            if occupancy < self.target {
+                return 0.0;
+            }
+            self.previous = self.rx.pop().unwrap_or(0.0);
+            self.next = self.rx.pop().unwrap_or(self.previous);
+            self.phase = 0.0;
+            self.primed = true;
+        }
         if occupancy > self.capacity * 3 / 4 {
             while self.rx.slots() > self.target {
                 if self.rx.pop().is_err() {
@@ -147,13 +171,16 @@ impl MicReader {
         while self.phase >= 1.0 {
             self.phase -= 1.0;
             self.previous = self.next;
-            self.next = match self.rx.pop() {
-                Ok(sample) => sample,
+            match self.rx.pop() {
+                Ok(sample) => self.next = sample,
                 Err(_) => {
                     self.metrics.underflow.fetch_add(1, Ordering::Relaxed);
-                    0.0
+                    self.primed = false;
+                    self.next = 0.0;
+                    self.phase = 0.0;
+                    break;
                 }
-            };
+            }
         }
         value
     }
@@ -178,8 +205,11 @@ fn capture<T: Pcm>(
                 }
                 let mut accepted = 0;
                 let mut overflow = 0;
+                let mut input_energy = 0.0_f64;
                 for frame in data.chunks_exact(channels) {
-                    if !enqueue_sample(&mut tx, mono(frame)) {
+                    let sample = mono(frame);
+                    input_energy += f64::from(sample * sample);
+                    if !enqueue_sample(&mut tx, sample) {
                         overflow += 1;
                     } else {
                         accepted += 1;
@@ -187,6 +217,11 @@ fn capture<T: Pcm>(
                 }
                 metrics.captured.fetch_add(accepted, Ordering::Relaxed);
                 metrics.overflow.fetch_add(overflow, Ordering::Relaxed);
+                update_level(
+                    &metrics.input_level_ppm,
+                    input_energy,
+                    data.len() / channels,
+                );
             },
             move |error| {
                 let event = super::cpal_backend::map_event(error.kind());
@@ -261,6 +296,9 @@ fn render_output<T: Pcm>(
                 metrics
                     .output_peak
                     .fetch_max((output_peak * METER_SCALE) as u64, Ordering::Relaxed);
+                let frames = data.len() / channels;
+                update_level(&metrics.mic_level_ppm, mic_energy, frames);
+                update_level(&metrics.output_level_ppm, output_energy, frames);
             },
             move |error| {
                 let event = super::cpal_backend::map_event(error.kind());
@@ -490,6 +528,17 @@ mod tests {
     }
 
     #[test]
+    fn live_level_tracks_signal_and_decays_during_silence() {
+        let level = AtomicU64::new(0);
+        update_level(&level, 4.0, 4);
+        assert_eq!(level.load(Ordering::Relaxed), 1_000_000);
+        update_level(&level, 0.0, 4);
+        assert_eq!(level.load(Ordering::Relaxed), 990_000);
+        update_level(&level, 0.0, 0);
+        assert_eq!(level.load(Ordering::Relaxed), 990_000);
+    }
+
+    #[test]
     fn microphone_and_clip_sum_and_clip_in_each_supported_sample_format() {
         let mut stereo = [0.0_f32; 2];
         assert_eq!(mix_frame(&mut stereo, &[0.2, -0.2], 0.3), 0);
@@ -516,6 +565,32 @@ mod tests {
         assert!(reader.frame() >= 0.0);
         assert!(metrics.discarded.load(Ordering::Relaxed) > 0);
         assert!(reader.rx.slots() <= reader.target);
+    }
+
+    #[test]
+    fn microphone_waits_for_buffer_and_recovers_after_underrun() {
+        let (mut tx, rx) = RingBuffer::new(200);
+        let metrics = Arc::new(RouteMetrics::default());
+        let mut reader = MicReader::new(rx, 1_000, 1_000, Arc::clone(&metrics));
+        for _ in 0..20 {
+            tx.push(0.5).unwrap();
+        }
+        assert_eq!(reader.frame(), 0.0, "half a target is not ready");
+        for _ in 0..20 {
+            tx.push(0.5).unwrap();
+        }
+        assert_eq!(reader.frame(), 0.5);
+        for _ in 0..45 {
+            reader.frame();
+        }
+        assert!(metrics.underflow.load(Ordering::Relaxed) > 0);
+        assert_eq!(reader.frame(), 0.0);
+        for _ in 0..39 {
+            tx.push(0.25).unwrap();
+        }
+        assert_eq!(reader.frame(), 0.0, "an underrun needs a fresh reserve");
+        tx.push(0.25).unwrap();
+        assert_eq!(reader.frame(), 0.25);
     }
 
     #[test]

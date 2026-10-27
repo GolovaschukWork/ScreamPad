@@ -7,6 +7,8 @@ behavior is **NOT VERIFIED** on that platform.
 
 Setup: start the app (`pnpm tauri dev`), import a clip of a few seconds, and play it. Keep the system volume low.
 
+For macOS microphone routing, test a signed app bundle rather than the development executable: run `pnpm tauri:build:macos:local`, then open `src-tauri/target/release/bundle/macos/ScreamPad.app`. This local build uses an ad hoc signature and the Audio Input entitlement. Verify `codesign -d --entitlements :- src-tauri/target/release/bundle/macos/ScreamPad.app` includes `com.apple.security.device.audio-input`. Select a physical microphone, start routing, and confirm the Captured input meter rises while speaking before testing Discord. The ad hoc bundle is for local validation only; release signing and notarization remain separate gates.
+
 | # | Action while a sound plays or after it stopped | Expected result |
 | --- | --- | --- |
 | 1 | Unplug the headphones or USB device that is the default output | No crash. The sound stops. Within a few seconds the app plays on the new default output when a sound is triggered again |

@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:build:macos:local": "APPLE_SIGNING_IDENTITY=- tauri build --bundles app",
     "ipc:export": "cargo test --manifest-path src-tauri/Cargo.toml export_bindings",
     "i18n:check": "node scripts/i18n/check-catalogs.mjs",
     "test:ui": "vitest run",

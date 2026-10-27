@@ -34,6 +34,10 @@ pub struct RouteMetrics {
     pub clip_energy: AtomicU64,
     pub output_energy: AtomicU64,
     pub output_peak: AtomicU64,
+    /// Recent callback RMS levels in parts per million of full scale.
+    pub mic_level_ppm: AtomicU64,
+    pub input_level_ppm: AtomicU64,
+    pub output_level_ppm: AtomicU64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +61,9 @@ pub struct RouteCounters {
     pub clip_energy: u64,
     pub output_energy: u64,
     pub output_peak: u64,
+    pub mic_level_ppm: u32,
+    pub input_level_ppm: u32,
+    pub output_level_ppm: u32,
 }
 
 pub type OpenRouteResult =
@@ -86,6 +93,12 @@ impl RouteMetrics {
             clip_energy: self.clip_energy.load(Ordering::Relaxed),
             output_energy: self.output_energy.load(Ordering::Relaxed),
             output_peak: self.output_peak.load(Ordering::Relaxed),
+            mic_level_ppm: u32::try_from(self.mic_level_ppm.load(Ordering::Relaxed))
+                .unwrap_or(u32::MAX),
+            input_level_ppm: u32::try_from(self.input_level_ppm.load(Ordering::Relaxed))
+                .unwrap_or(u32::MAX),
+            output_level_ppm: u32::try_from(self.output_level_ppm.load(Ordering::Relaxed))
+                .unwrap_or(u32::MAX),
         }
     }
 }

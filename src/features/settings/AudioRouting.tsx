@@ -23,6 +23,10 @@ import {
 const BLACKHOLE_URL = "https://existential.audio/blackhole/";
 const INSTALLATION_URL = "https://github.com/ExistentialAudio/BlackHole/wiki/Installation";
 
+function levelDb(levelPpm: number): number {
+  return levelPpm > 0 ? Math.max(-120, Math.round(20 * Math.log10(levelPpm / 1_000_000))) : -120;
+}
+
 export function AudioRouting() {
   const { t } = useTranslation();
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: "scanning" });
@@ -164,7 +168,7 @@ export function AudioRouting() {
         <p className="text-muted-foreground">{t("routing.localPlayback")}</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p role="status" aria-live="polite" className="font-medium">
-            {running ? t("routing.runRunning") : route?.state === "failed" ? t("routing.runError") : route ? `${t("routing.runStopped")} ${stateText[state]}` : stateText[state]}
+            {running ? t("routing.runRunning") : route?.state === "failed" ? t("routing.runError") : route && state !== "deviceSelected" ? `${t("routing.runStopped")} ${stateText[state]}` : stateText[state]}
           </p>
           <Button variant="outline" onClick={() => void refresh()}>{t("routing.refresh")}</Button>
         </div>
@@ -198,10 +202,43 @@ export function AudioRouting() {
           <Button type="button" disabled={busy || (!running && !canStart)} onClick={() => void (running ? stop() : start())}>
             {running ? t("routing.stop") : t("routing.start")}
           </Button>
+          {!running && state === "deviceSelected" && (
+            <p aria-live="polite" className="text-muted-foreground">
+              {canStart ? t("routing.startRequired") : t("routing.selectMicToStart")}
+            </p>
+          )}
           {route?.failure && <p role="alert" className="text-destructive">{failureText[route.failure]}</p>}
           {running && (route.counters?.clipErrors ?? 0) > 0 && <p role="alert" className="text-destructive">{t("routing.clipFailed")}</p>}
           {actionError && <p role="alert" className="text-destructive">{actionError}</p>}
           {running && <p className="text-muted-foreground">{t("routing.chatInputHint", { name: virtualOutput?.name ?? selected?.name ?? "" })}</p>}
+          {running && <p className="text-muted-foreground">{t("routing.discordAudioHint")}</p>}
+          {running && route?.counters && (
+            <div className="space-y-2 rounded-lg border p-3">
+              <p className="font-medium">{t("routing.signalTitle")}</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <p>{t("routing.inputSignal", { level: levelDb(route.counters.inputLevelPpm) })}</p>
+                  <meter className="w-full" min={-60} max={0} value={Math.max(-60, levelDb(route.counters.inputLevelPpm))} aria-label={t("routing.inputSignalLabel")} />
+                </div>
+                <div>
+                  <p>{t("routing.micSignal", { level: levelDb(route.counters.micLevelPpm) })}</p>
+                  <meter className="w-full" min={-60} max={0} value={Math.max(-60, levelDb(route.counters.micLevelPpm))} aria-label={t("routing.micSignalLabel")} />
+                </div>
+                <div>
+                  <p>{t("routing.outputSignal", { level: levelDb(route.counters.outputLevelPpm) })}</p>
+                  <meter className="w-full" min={-60} max={0} value={Math.max(-60, levelDb(route.counters.outputLevelPpm))} aria-label={t("routing.outputSignalLabel")} />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("routing.signalFrames", {
+                captured: route.counters.captured,
+                rendered: route.counters.rendered,
+                underflow: route.counters.underflow,
+                overflow: route.counters.overflow,
+                clipped: route.counters.clipped,
+              })}</p>
+              <p className="text-xs text-muted-foreground">{t("routing.signalNote")}</p>
+            </div>
+          )}
         </div>
         {state === "setupRequired" && (
           <div className="space-y-2 border-t pt-4">

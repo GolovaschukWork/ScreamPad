@@ -2,6 +2,12 @@
 
 This record covers the production CPAL route in the `feat/macos-call-routing` feature branch. It is not a Discord recipient test or a release approval.
 
+## Follow-up: silent microphone input (2026-10-27)
+
+In the production UI, the owner observed about 2.05 million captured and rendered frames with zero queue underruns while the microphone and virtual-output levels remained at the meter floor during speech. Playing a library sound raised the virtual-output level. The macOS Sound input meter moved for the selected MacBook Pro Microphone, and ScreamPad was enabled under Privacy & Security > Microphone. These observations narrow the failure to microphone capture by this app; they do not prove a mixer or Discord defect.
+
+The app had `NSMicrophoneUsageDescription` but no macOS Audio Input entitlement. A Tauri bundle built without a signing identity had no entitlements in `codesign -d --entitlements`. The project now declares `com.apple.security.device.audio-input` in `src-tauri/Entitlements.plist`. An ad hoc test bundle built with `APPLE_SIGNING_IDENTITY=- pnpm tauri build --bundles app` contained that entitlement, bound the `dev.local.soundboard` identifier in its signature, and passed `codesign --verify --deep --strict`. The owner reported that microphone routing works and self-audio is audible in that signed bundle. The exact listening application, simultaneous clip/voice quality, and remote Discord delivery are **NOT VERIFIED**. The ad hoc signature is for local development only and is not a release signature.
+
 ## Hardware and component
 
 - Host: macOS 26.2 arm64, MacBook Pro. The selected capture device was `MacBook Pro Microphone` (`coreaudio:BuiltInMicrophoneDevice`, 1 input channel). The selected route output was `ScreamPad Audio 2ch` (`coreaudio:io.github.golovaschukwork.screampad.audio.device.2ch`, 2 input and 2 output channels). The local output was `MacBook Pro Speakers` (`coreaudio:BuiltInSpeakerDevice`, 2 output channels). All reported a current 48,000 Hz sample rate in System Information.

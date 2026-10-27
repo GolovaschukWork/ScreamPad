@@ -44,6 +44,9 @@ pub struct RoutingCountersDto {
     pub clipped: u32,
     pub xruns: u32,
     pub clip_errors: u32,
+    pub mic_level_ppm: u32,
+    pub input_level_ppm: u32,
+    pub output_level_ppm: u32,
 }
 
 impl From<RouteCounters> for RoutingCountersDto {
@@ -65,6 +68,9 @@ impl From<RouteCounters> for RoutingCountersDto {
             clipped: bounded(value.clipped),
             xruns: bounded(value.xruns),
             clip_errors: bounded(value.clip_errors),
+            mic_level_ppm: value.mic_level_ppm,
+            input_level_ppm: value.input_level_ppm,
+            output_level_ppm: value.output_level_ppm,
         }
     }
 }

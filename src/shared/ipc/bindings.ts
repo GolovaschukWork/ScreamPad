@@ -165,6 +165,9 @@ export type RoutingCountersDto = {
 	clipped: number,
 	xruns: number,
 	clipErrors: number,
+	micLevelPpm: number,
+	inputLevelPpm: number,
+	outputLevelPpm: number,
 };
 
 export type RoutingFailureDto = "noDevice" | "permissionDenied" | "unsupported" | "other";
