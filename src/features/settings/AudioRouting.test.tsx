@@ -1,10 +1,10 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AudioDeviceDto, AudioDevicesDto } from "../../shared/ipc/bindings";
+import type { AudioDeviceDto, AudioDevicesDto, RoutingCountersDto } from "../../shared/ipc/bindings";
 import { backend, commands, resetBackend } from "../../test/fakeBindings";
 import { AudioRouting } from "./AudioRouting";
-import { setSelectedDevice } from "./audioRoutingState";
+import { setSelectedDevice, setSelectedMicrophone, setSelectedMonitor } from "./audioRoutingState";
 
 const opener = vi.hoisted(() => ({ openUrl: vi.fn(async (_url: string) => {}) }));
 vi.mock("@tauri-apps/plugin-opener", () => opener);
@@ -25,8 +25,14 @@ describe("audio routing onboarding", () => {
   beforeEach(() => {
     resetBackend();
     setSelectedDevice(null);
+    setSelectedMicrophone(null);
+    setSelectedMonitor(null);
     commands.listAudioDevices.mockReset();
     commands.listAudioDevices.mockImplementation(async () => ({ status: "ok", data: backend.audioDevices }));
+    commands.startCallRouting.mockClear();
+    commands.stopCallRouting.mockClear();
+    commands.openAudioInstaller.mockClear();
+    commands.setLocalMonitorOutput.mockClear();
     opener.openUrl.mockClear();
   });
 
@@ -36,27 +42,27 @@ describe("audio routing onboarding", () => {
     commands.listAudioDevices.mockImplementationOnce(() => pending);
     render(<AudioRouting />);
     expect(screen.getByRole("status").textContent).toContain("Scanning");
-    expect(screen.getByText(/Local playback works without/)).not.toBeNull();
+    expect(screen.getByText(/Sounds play locally even without/)).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "Refresh Devices" }));
     expect((await screen.findByRole("status")).textContent).toContain("Setup required");
     backend.deviceDiscoveryError = true;
     commands.listAudioDevices.mockImplementationOnce(async () => ({ status: "error", error: { kind: "deviceDiscoveryFailed" } }));
     await user.click(screen.getByRole("button", { name: "Refresh Devices" }));
     expect((await screen.findByRole("status")).textContent).toContain("Device discovery failed");
-    expect(screen.getByText(/Local playback works without/)).not.toBeNull();
+    expect(screen.getByText(/Sounds play locally even without/)).not.toBeNull();
   });
 
   it("allows keyboard selection of unknown outputs, keeps selection in session, and reports a missing device", async () => {
     const user = userEvent.setup();
     backend.audioDevices = result([device({ kind: "unknown" })]);
     const page = render(<AudioRouting />);
-    const group = await screen.findByText("Other outputs — device type unknown");
+    const group = await screen.findByText("Choose a virtual device for calls");
     expect(group).not.toBeNull();
     const select = screen.getByRole("button", { name: "Select Virtual Output" });
     select.focus();
     await user.keyboard("{Enter}");
     expect(screen.getByRole("button", { name: "Virtual Output selected" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("status").textContent).toContain("Device selected");
+    expect(screen.getByRole("status").textContent).toContain("Virtual device ready");
     page.unmount();
     backend.audioDevices = result([]);
     render(<AudioRouting />);
@@ -87,17 +93,17 @@ describe("audio routing onboarding", () => {
     backend.audioDevices = result([device()]);
     render(<AudioRouting />);
     await user.click(screen.getByRole("button", { name: "Refresh Devices" }));
-    expect((await screen.findByRole("status")).textContent).toContain("Candidate detected");
+    expect((await screen.findByRole("status")).textContent).toContain("Virtual device ready");
     await act(async () => resolveFirst({ status: "ok", data: result([]) }));
-    expect(screen.getByRole("status").textContent).toContain("Candidate detected");
-    expect(within(screen.getByRole("region", { name: "Audio Routing" })).getByText("Virtual Output")).not.toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Virtual device ready");
+    expect(within(screen.getByRole("region", { name: "Audio Routing" })).getByText(/Virtual device for calls: Virtual Output/)).not.toBeNull();
   });
 
   it("announces scan changes and opens only the fixed publisher URLs from keyboard-accessible links", async () => {
     const user = userEvent.setup();
-    backend.audioDevices = result([device()]);
+    backend.audioDevices = result([]);
     render(<AudioRouting />);
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Candidate detected"));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Setup required"));
     expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
     const download = screen.getByRole("link", { name: /Get BlackHole for macOS/ });
     const guide = screen.getByRole("link", { name: /View installation guide/ });
@@ -116,7 +122,98 @@ describe("audio routing onboarding", () => {
     const user = userEvent.setup();
     opener.openUrl.mockRejectedValueOnce(new Error("not allowed"));
     render(<AudioRouting />);
-    await user.click(screen.getByRole("link", { name: /Get BlackHole for macOS/ }));
+    await user.click(await screen.findByRole("link", { name: /Get BlackHole for macOS/ }));
     expect((await screen.findByRole("alert")).textContent).toContain("could not be opened");
+  });
+
+  it("starts and stops routing only with selected devices and reports backend state", async () => {
+    const user = userEvent.setup();
+    backend.audioDevices = result([
+      device(),
+      device({ id: "coreaudio:mic", name: "Built-in Microphone", kind: "unknown", input: true, output: false }),
+      device({ id: "coreaudio:speakers", name: "Speakers", kind: "unknown", input: false, output: true }),
+    ]);
+    render(<AudioRouting />);
+    expect(await screen.findByText(/until you choose a physical microphone and start routing/)).not.toBeNull();
+    expect(screen.getByRole("status").textContent?.match(/Routing stopped/g)?.length).toBe(1);
+    await user.click(await screen.findByRole("combobox", { name: "Physical microphone" }));
+    await user.click(await screen.findByRole("option", { name: "Built-in Microphone" }));
+    expect(screen.getByText("Discord receives silence until you start routing.")).not.toBeNull();
+    await user.click(screen.getByRole("combobox", { name: "Local monitoring output" }));
+    await user.click(await screen.findByRole("option", { name: "Speakers" }));
+    expect(commands.setLocalMonitorOutput).toHaveBeenCalledWith("coreaudio:speakers");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start Routing" }).hasAttribute("disabled")).toBe(false));
+    await user.click(screen.getByRole("button", { name: "Start Routing" }));
+    expect(commands.startCallRouting).toHaveBeenCalledWith("coreaudio:mic", "coreaudio:virtual-1");
+    expect((await screen.findByRole("status")).textContent).toContain("Routing active");
+    expect(screen.getByText(/turn off Noise Suppression \(Krisp\)/)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Stop Routing" }));
+    expect(commands.stopCallRouting).toHaveBeenCalled();
+    expect((await screen.findByRole("status")).textContent).toContain("Virtual device ready");
+    expect(screen.getByText("Discord receives silence until you start routing.")).not.toBeNull();
+  });
+
+  it("shows microphone and virtual output levels without claiming Discord delivery", async () => {
+    const counters: RoutingCountersDto = {
+      inputRate: 48000, outputRate: 48000, queueCapacity: 9600,
+      inputBufferFrames: 512, outputBufferFrames: 512, captured: 48000,
+      rendered: 48000, occupancy: 1920, overflow: 0, underflow: 0,
+      discarded: 0, maxOccupancy: 2200, clipped: 0, xruns: 0,
+      clipErrors: 0, inputLevelPpm: 10000, micLevelPpm: 10000, outputLevelPpm: 100000,
+    };
+    backend.route = { state: "running", failure: null, sampleRate: 48000, channels: 2, counters };
+    backend.audioDevices = result([device()]);
+    render(<AudioRouting />);
+    expect(await screen.findByText("Captured input: -40 dBFS")).not.toBeNull();
+    expect(screen.getByText("Voice in mix: -40 dBFS")).not.toBeNull();
+    expect(screen.getByText("Virtual output: -20 dBFS")).not.toBeNull();
+    expect(screen.getByText(/Captured frames: 48000/)).not.toBeNull();
+    expect(screen.getByText(/not what Discord receives/)).not.toBeNull();
+  });
+
+  it("shows only microphone and monitor choices when the branded route is available", async () => {
+    const user = userEvent.setup();
+    const branded = "coreaudio:io.github.golovaschukwork.screampad.audio.device.2ch";
+    backend.audioDevices = result([
+      device({ id: "coreaudio:blackhole", name: "BlackHole 2ch" }),
+      device({ id: branded, name: "ScreamPad Audio 2ch", kind: "unknown" }),
+      device({ id: "coreaudio:mic", name: "Built-in Microphone", kind: "physical", input: true, output: false }),
+      device({ id: "coreaudio:speakers", name: "Speakers", kind: "physical", input: false, output: true }),
+    ]);
+    render(<AudioRouting />);
+    expect(await screen.findByText(/Virtual device for calls: ScreamPad Audio 2ch/)).not.toBeNull();
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /Select BlackHole/ })).toBeNull();
+    await user.click(screen.getByRole("combobox", { name: "Physical microphone" }));
+    await user.click(await screen.findByRole("option", { name: "Built-in Microphone" }));
+    await user.click(screen.getByRole("button", { name: "Start Routing" }));
+    expect(commands.startCallRouting).toHaveBeenCalledWith("coreaudio:mic", branded);
+  });
+
+  it("reports a missing previous route and uses the sole available virtual device", async () => {
+    const user = userEvent.setup();
+    setSelectedDevice({ id: "coreaudio:removed", name: "Old Virtual Device" });
+    backend.audioDevices = result([
+      device(),
+      device({ id: "coreaudio:mic", name: "Built-in Microphone", kind: "physical", input: true, output: false }),
+    ]);
+    render(<AudioRouting />);
+    expect(await screen.findByText(/Previously selected device.*Old Virtual Device/)).not.toBeNull();
+    expect(screen.getByText(/Virtual device for calls: Virtual Output/)).not.toBeNull();
+    await user.click(screen.getByRole("combobox", { name: "Physical microphone" }));
+    await user.click(await screen.findByRole("option", { name: "Built-in Microphone" }));
+    await user.click(screen.getByRole("button", { name: "Start Routing" }));
+    expect(commands.startCallRouting).toHaveBeenCalledWith("coreaudio:mic", "coreaudio:virtual-1");
+  });
+
+  it("opens the native Installer chooser only after an explicit setup click", async () => {
+    const user = userEvent.setup();
+    backend.audioDevices = result([]);
+    render(<AudioRouting />);
+    await screen.findByRole("button", { name: "Open ScreamPad Audio package in Installer" });
+    expect(commands.openAudioInstaller).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Open ScreamPad Audio package in Installer" }));
+    expect(commands.openAudioInstaller).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/Installer opened/)).not.toBeNull();
   });
 });

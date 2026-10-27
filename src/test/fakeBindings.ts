@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { AppError, AudioDevicesDto, ImportResult, PlayModeDto, PlayResult, SettingsDto, SoundSummary, ThemeDto } from "../shared/ipc/bindings";
+import type { AppError, AudioDevicesDto, ImportResult, PlayModeDto, PlayResult, RoutingStatusDto, SettingsDto, SoundSummary, ThemeDto } from "../shared/ipc/bindings";
 
 /** The fake backend behind the IPC boundary. It follows the real contract: results are `{status, data|error}`. */
 export const backend = {
@@ -19,6 +19,7 @@ export const backend = {
   playResult: "started" as PlayResult,
   audioDevices: { devices: [], incomplete: false } as AudioDevicesDto,
   deviceDiscoveryError: false,
+  route: { state: "stopped", failure: null, sampleRate: null, channels: null, counters: null } as RoutingStatusDto,
 };
 
 export function resetBackend(): void {
@@ -34,6 +35,7 @@ export function resetBackend(): void {
   backend.playResult = "started";
   backend.audioDevices = { devices: [], incomplete: false };
   backend.deviceDiscoveryError = false;
+  backend.route = { state: "stopped", failure: null, sampleRate: null, channels: null, counters: null };
 }
 
 type PlayingEvent = { payload: { ids: number[] } };
@@ -65,6 +67,17 @@ export const commands = {
     return { name: "ScreamPad", version: "0.1.0" };
   }),
   listAudioDevices: vi.fn(async () => backend.deviceDiscoveryError ? failed({ kind: "deviceDiscoveryFailed" }) : ok(backend.audioDevices)),
+  callRoutingStatus: vi.fn(async () => ok({ ...backend.route })),
+  startCallRouting: vi.fn(async (_microphoneId: string, _virtualOutputId: string) => {
+    backend.route = { state: "running", failure: null, sampleRate: 48000, channels: 2, counters: null };
+    return ok({ ...backend.route });
+  }),
+  stopCallRouting: vi.fn(async () => {
+    backend.route = { state: "stopped", failure: null, sampleRate: null, channels: null, counters: null };
+    return ok(null);
+  }),
+  setLocalMonitorOutput: vi.fn(async (_deviceId: string | null) => ok(null)),
+  openAudioInstaller: vi.fn(async () => ok(true)),
   getSettings: vi.fn(async () => (backend.failReadsWith ? failed(backend.failReadsWith) : ok({ ...backend.settings }))),
   updateSettings: vi.fn(async (language: string, masterGainMillibels: number, theme: ThemeDto) => {
     if (backend.holdUpdate) await backend.holdUpdate;

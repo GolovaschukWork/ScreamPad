@@ -3,9 +3,148 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::backend::{BackendError, OutputFormat, StreamEvent};
+use super::backend::{BackendError, OutputFormat, RouteDevices, StreamEvent};
 use super::clip::Clip;
-use super::engine::{AudioEngine, EngineConfig, EngineError, EngineState, FailureReason};
+use super::engine::{
+    AudioEngine, EngineConfig, EngineError, EngineState, FailureReason, RouteState,
+};
+
+fn devices() -> RouteDevices {
+    RouteDevices {
+        microphone_id: "physical-mic".into(),
+        virtual_output_id: "virtual".into(),
+    }
+}
+
+#[test]
+fn routing_shares_the_engine_worker_but_does_not_mix_microphone_into_local_playback() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    engine.start_route(devices()).expect("route start");
+    assert_eq!(engine.route_snapshot().state, RouteState::Running);
+    engine
+        .play_tagged_routed(
+            clip(0.5, 48_000, STEREO_48K),
+            Some(clip(0.5, 48_000, STEREO_48K)),
+            1.0,
+            42,
+        )
+        .expect("fan-out");
+    assert_eq!(shared.pump(1).expect("local")[0], 0.5);
+    assert!((shared.pump_route(1).expect("route")[0] - 0.1).abs() < 1e-6);
+    engine.stop_tag(42).expect("stop sound");
+    assert_eq!(
+        *shared.pump(300).expect("local").last().expect("frame"),
+        0.0
+    );
+    assert_eq!(
+        *shared
+            .pump_route(300)
+            .expect("route")
+            .last()
+            .expect("frame"),
+        0.0
+    );
+    engine.stop_route().expect("stop capture");
+    assert_eq!(engine.route_snapshot().state, RouteState::Stopped);
+    assert!(shared.pump_route(1).is_none());
+    assert_eq!(
+        shared.streams_alive(),
+        1,
+        "local output survives route stop"
+    );
+}
+
+#[test]
+fn repeated_start_and_route_device_error_release_only_route_stream() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    engine.start_route(devices()).expect("start");
+    engine.start_route(devices()).expect("idempotent start");
+    assert_eq!(shared.streams_alive(), 2);
+    shared.emit_route(StreamEvent::DeviceLost);
+    wait_for("route failure", || {
+        matches!(engine.route_snapshot().state, RouteState::Failed(_))
+    });
+    assert_eq!(shared.streams_alive(), 1);
+    assert_eq!(engine.snapshot().state, EngineState::Running);
+    engine.stop_route().expect("stop after failure");
+    engine.stop_route().expect("repeated stop");
+    engine
+        .start_route(devices())
+        .expect("restart after device recovery");
+    assert_eq!(engine.route_snapshot().state, RouteState::Running);
+}
+
+#[test]
+fn transient_enumeration_miss_keeps_route_but_sustained_loss_stops_capture() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    engine.start_route(devices()).expect("start");
+    shared.miss_route_devices_for_polls(2);
+    wait_for("two missing device scans", || {
+        shared.remaining_route_device_misses() == 0
+    });
+    assert_eq!(engine.route_snapshot().state, RouteState::Running);
+    shared.miss_route_devices_for_polls(3);
+    wait_for("device loss", || {
+        matches!(engine.route_snapshot().state, RouteState::Failed(_))
+    });
+    assert_eq!(
+        shared.streams_alive(),
+        1,
+        "capture and virtual output are closed"
+    );
+    assert_eq!(engine.snapshot().state, EngineState::Running);
+}
+
+#[test]
+fn virtual_output_cannot_be_the_local_monitor_or_microphone() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    assert_eq!(
+        engine.start_route(RouteDevices {
+            microphone_id: "virtual".into(),
+            virtual_output_id: "virtual".into()
+        }),
+        Err(EngineError::Unavailable)
+    );
+    shared.set_default_id(Some("virtual"));
+    wait_for("default output switch", || engine.snapshot().opens > 1);
+    assert_eq!(engine.start_route(devices()), Err(EngineError::Unavailable));
+}
+
+#[test]
+fn microphone_permission_denial_never_stops_local_audio() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    shared.fail_next_route_with(BackendError::PermissionDenied);
+    assert_eq!(engine.start_route(devices()), Err(EngineError::Unavailable));
+    assert_eq!(
+        engine.route_snapshot().state,
+        RouteState::Failed(FailureReason::PermissionDenied)
+    );
+    assert_eq!(engine.snapshot().state, EngineState::Running);
+    assert_eq!(shared.streams_alive(), 1);
+}
+
+#[test]
+fn failed_local_monitor_selection_restores_previous_output() {
+    let shared = FakeShared::new();
+    let engine = engine(&shared);
+    wait_running(&engine);
+    assert_eq!(
+        engine.set_local_output(Some("virtual".into())),
+        Err(EngineError::Unavailable)
+    );
+    assert_eq!(engine.snapshot().state, EngineState::Running);
+    assert_eq!(shared.streams_alive(), 1);
+}
 use super::test_backend::{FakeBackend, FakeShared, STEREO_48K};
 
 const MONO_44K: OutputFormat = OutputFormat {

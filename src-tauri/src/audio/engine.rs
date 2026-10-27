@@ -14,7 +14,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use super::backend::{
-    AudioBackend, BackendError, EventSink, OutputFormat, RunningStream, StreamEvent,
+    AudioBackend, BackendError, EventSink, OutputFormat, RouteCounters, RouteDevices, RouteMetrics,
+    RunningStream, StreamEvent,
 };
 use super::clip::Clip;
 use super::mixer::{ControlError, Event, MixerHandle, Stats, VoiceId, mixer};
@@ -58,6 +59,20 @@ pub struct EngineSnapshot {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteState {
+    Stopped,
+    Running,
+    Failed(FailureReason),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RouteSnapshot {
+    pub state: RouteState,
+    pub format: Option<OutputFormat>,
+    pub counters: Option<RouteCounters>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineError {
     /// There is no running stream right now (starting, recovering or failed).
     Unavailable,
@@ -92,6 +107,7 @@ impl EngineConfig {
 enum Message {
     Play {
         clip: Arc<Clip>,
+        route_clip: Option<Arc<Clip>>,
         gain: f32,
         tag: Option<VoiceTag>,
         reply: Sender<Result<(), EngineError>>,
@@ -119,6 +135,27 @@ enum Message {
         reply: Sender<Result<(), EngineError>>,
     },
     Retry,
+    StartRoute {
+        devices: RouteDevices,
+        reply: Sender<Result<(), EngineError>>,
+    },
+    StopRoute {
+        reply: Sender<Result<(), EngineError>>,
+    },
+    RoutePlay {
+        clip: Arc<Clip>,
+        gain: f32,
+        tag: VoiceTag,
+        reply: Sender<Result<(), EngineError>>,
+    },
+    SetLocalOutput {
+        id: Option<String>,
+        reply: Sender<Result<(), EngineError>>,
+    },
+    RouteStream {
+        generation: u64,
+        event: StreamEvent,
+    },
     /// An event from the audio API. `generation` identifies the stream that raised it; events of a stream that has been
     /// replaced are stale and ignored.
     Stream {
@@ -136,6 +173,7 @@ struct Shared {
     rejected_plays: AtomicU64,
     /// The current stream's mixer counters, read live so a snapshot is never stale.
     mixer_stats: RwLock<Option<Arc<Stats>>>,
+    route: RwLock<(RouteState, Option<OutputFormat>, Option<Arc<RouteMetrics>>)>,
 }
 
 impl Shared {
@@ -185,6 +223,7 @@ impl AudioEngine {
             opens: AtomicU64::new(0),
             rejected_plays: AtomicU64::new(0),
             mixer_stats: RwLock::new(None),
+            route: RwLock::new((RouteState::Stopped, None, None)),
         });
         let worker_sender = sender.clone();
         let worker_shared = Arc::clone(&shared);
@@ -217,10 +256,64 @@ impl AudioEngine {
         }
     }
 
+    pub fn route_snapshot(&self) -> RouteSnapshot {
+        let route = self
+            .shared
+            .route
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        RouteSnapshot {
+            state: route.0,
+            format: route.1,
+            counters: route.2.as_ref().map(|metrics| metrics.snapshot()),
+        }
+    }
+
+    pub fn record_route_clip_failure(&self) {
+        let route = self
+            .shared
+            .route
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(metrics) = &route.2 {
+            metrics.clip_errors.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub fn start_route(&self, devices: RouteDevices) -> Result<(), EngineError> {
+        self.request_timeout(Duration::from_secs(30), |reply| Message::StartRoute {
+            devices,
+            reply,
+        })
+    }
+
+    pub fn stop_route(&self) -> Result<(), EngineError> {
+        self.request(|reply| Message::StopRoute { reply })
+    }
+
+    pub fn route_play_tagged(
+        &self,
+        clip: Arc<Clip>,
+        gain: f32,
+        tag: VoiceTag,
+    ) -> Result<(), EngineError> {
+        self.request(|reply| Message::RoutePlay {
+            clip,
+            gain,
+            tag,
+            reply,
+        })
+    }
+
+    pub fn set_local_output(&self, id: Option<String>) -> Result<(), EngineError> {
+        self.request(|reply| Message::SetLocalOutput { id, reply })
+    }
+
     /// Starts `clip` at `gain` (1.0 is unity). The clip must match the current stream format.
     pub fn play(&self, clip: Arc<Clip>, gain: f32) -> Result<(), EngineError> {
         self.request(|reply| Message::Play {
             clip,
+            route_clip: None,
             gain,
             tag: None,
             reply,
@@ -237,6 +330,24 @@ impl AudioEngine {
     ) -> Result<(), EngineError> {
         self.request(|reply| Message::Play {
             clip,
+            route_clip: None,
+            gain,
+            tag: Some(tag),
+            reply,
+        })
+    }
+
+    /// Starts the local and optional route clip under one control-thread decision.
+    pub fn play_tagged_routed(
+        &self,
+        clip: Arc<Clip>,
+        route_clip: Option<Arc<Clip>>,
+        gain: f32,
+        tag: VoiceTag,
+    ) -> Result<(), EngineError> {
+        self.request(|reply| Message::Play {
+            clip,
+            route_clip,
             gain,
             tag: Some(tag),
             reply,
@@ -290,6 +401,14 @@ impl AudioEngine {
         &self,
         build: impl FnOnce(Sender<Result<T, EngineError>>) -> Message,
     ) -> Result<T, EngineError> {
+        self.request_timeout(REPLY_TIMEOUT, build)
+    }
+
+    fn request_timeout<T>(
+        &self,
+        timeout: Duration,
+        build: impl FnOnce(Sender<Result<T, EngineError>>) -> Message,
+    ) -> Result<T, EngineError> {
         let (reply, answer) = channel();
         self.sender
             .try_send(build(reply))
@@ -297,7 +416,7 @@ impl AudioEngine {
                 std::sync::mpsc::TrySendError::Full(_) => EngineError::Busy,
                 std::sync::mpsc::TrySendError::Disconnected(_) => EngineError::Stopped,
             })?;
-        match answer.recv_timeout(REPLY_TIMEOUT) {
+        match answer.recv_timeout(timeout) {
             Ok(result) => result,
             Err(RecvTimeoutError::Timeout) => Err(EngineError::Busy),
             Err(RecvTimeoutError::Disconnected) => Err(EngineError::Stopped),
@@ -357,6 +476,11 @@ struct Worker {
     /// Identifies the current stream; bumped on every attempt to open one.
     generation: u64,
     session: Option<Session>,
+    route: Option<Session>,
+    route_devices: Option<RouteDevices>,
+    route_generation: u64,
+    missing_route_device_polls: u8,
+    selected_output: Option<String>,
     /// Failed opens in a row.
     attempt: u32,
     retry_at: Option<Instant>,
@@ -370,6 +494,162 @@ struct Worker {
 }
 
 impl Worker {
+    fn set_route_status(
+        &self,
+        state: RouteState,
+        format: Option<OutputFormat>,
+        metrics: Option<Arc<RouteMetrics>>,
+    ) {
+        *self
+            .shared
+            .route
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = (state, format, metrics);
+    }
+
+    fn start_route(&mut self, devices: RouteDevices) -> Result<(), EngineError> {
+        if self.route.is_some() && self.route_devices.as_ref() == Some(&devices) {
+            return Ok(());
+        }
+        self.stop_route();
+        let local_id = self
+            .selected_output
+            .clone()
+            .or_else(|| self.backend.default_output_id());
+        if devices.microphone_id == devices.virtual_output_id
+            || local_id.as_deref() == Some(devices.virtual_output_id.as_str())
+        {
+            self.set_route_status(RouteState::Failed(FailureReason::Unsupported), None, None);
+            return Err(EngineError::Unavailable);
+        }
+        self.route_generation += 1;
+        let generation = self.route_generation;
+        let sender = self.sender.clone();
+        let events: EventSink = Arc::new(move |event| {
+            let _ = sender.try_send(Message::RouteStream { generation, event });
+        });
+        let mut handle_slot = None;
+        let mut make_render = |format: OutputFormat| {
+            let (mut mixer, handle) = mixer(format.channels, format.sample_rate);
+            handle_slot = Some(handle);
+            Box::new(move |out: &mut [f32]| mixer.render(out)) as super::backend::RenderFn
+        };
+        match self.backend.open_route(&devices, &mut make_render, events) {
+            Ok((stream, format, metrics)) => {
+                let Some(handle) = handle_slot else {
+                    self.set_route_status(RouteState::Failed(FailureReason::Other), None, None);
+                    return Err(EngineError::Unavailable);
+                };
+                self.route = Some(Session {
+                    _stream: stream,
+                    handle,
+                    format,
+                    voices: Vec::new(),
+                });
+                self.route_devices = Some(devices);
+                self.missing_route_device_polls = 0;
+                self.set_route_status(RouteState::Running, Some(format), Some(metrics));
+                Ok(())
+            }
+            Err(error) => {
+                let reason = match error {
+                    BackendError::NoDevice | BackendError::Busy => FailureReason::NoDevice,
+                    BackendError::PermissionDenied => FailureReason::PermissionDenied,
+                    BackendError::Unsupported => FailureReason::Unsupported,
+                    BackendError::Other => FailureReason::Other,
+                };
+                self.set_route_status(RouteState::Failed(reason), None, None);
+                Err(EngineError::Unavailable)
+            }
+        }
+    }
+
+    fn stop_route(&mut self) {
+        self.route_generation += 1;
+        self.route = None;
+        self.route_devices = None;
+        self.missing_route_device_polls = 0;
+        self.set_route_status(RouteState::Stopped, None, None);
+    }
+
+    fn fail_route(&mut self, reason: FailureReason) {
+        if self.route.take().is_some() {
+            self.route_generation += 1;
+            self.route_devices = None;
+            // Retain the final counters so a device failure can be diagnosed without
+            // keeping either stream or the microphone capture alive.
+            let metrics = self
+                .shared
+                .route
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .2
+                .clone();
+            self.set_route_status(RouteState::Failed(reason), None, metrics);
+        }
+    }
+
+    fn route_play(&mut self, clip: Arc<Clip>, gain: f32, tag: VoiceTag) -> Result<(), EngineError> {
+        self.sync_route_voices();
+        let route = self.route.as_mut().ok_or(EngineError::Unavailable)?;
+        if clip.channels() != route.format.channels
+            || clip.sample_rate() != route.format.sample_rate
+        {
+            return Err(EngineError::FormatMismatch);
+        }
+        // Keep the clip below speech level in chat processing; the user's stored gain still scales it.
+        let id = route
+            .handle
+            .play(clip, gain * 0.2)
+            .map_err(|error| match error {
+                ControlError::Busy => EngineError::Busy,
+                ControlError::ChannelMismatch => EngineError::FormatMismatch,
+            })?;
+        route.voices.push(TrackedVoice {
+            id,
+            tag: Some(tag),
+            stopping: false,
+        });
+        Ok(())
+    }
+
+    fn stop_route_voices(&mut self, tag: Option<VoiceTag>) {
+        self.sync_route_voices();
+        let Some(route) = self.route.as_mut() else {
+            return;
+        };
+        match tag {
+            None => {
+                let _ = route.handle.stop_all();
+                for voice in &mut route.voices {
+                    voice.stopping = true;
+                }
+            }
+            Some(tag) => {
+                for voice in &mut route.voices {
+                    if voice.tag == Some(tag)
+                        && !voice.stopping
+                        && route.handle.stop(voice.id).is_ok()
+                    {
+                        voice.stopping = true;
+                    }
+                }
+            }
+        }
+    }
+
+    fn sync_route_voices(&mut self) {
+        if let Some(route) = self.route.as_mut() {
+            for event in route.handle.drain() {
+                match event {
+                    Event::VoiceFinished(id) | Event::PlayRejected(id) => {
+                        route.voices.retain(|voice| voice.id != id)
+                    }
+                }
+            }
+        }
+    }
+
     fn new(
         backend: Box<dyn AudioBackend>,
         config: EngineConfig,
@@ -383,6 +663,11 @@ impl Worker {
             sender,
             generation: 0,
             session: None,
+            route: None,
+            route_devices: None,
+            route_generation: 0,
+            missing_route_device_polls: 0,
+            selected_output: None,
             attempt: 0,
             retry_at: None,
             next_poll: Instant::now(),
@@ -419,6 +704,7 @@ impl Worker {
     }
 
     fn stop(mut self) {
+        self.stop_route();
         self.session = None;
         self.shared.set_mixer_stats(None);
         self.shared.set(EngineState::Stopped, None);
@@ -444,11 +730,30 @@ impl Worker {
         match message {
             Message::Play {
                 clip,
+                route_clip,
                 gain,
                 tag,
                 reply,
             } => {
-                let _ = reply.send(self.play(clip, gain, tag));
+                let result = self.play(clip, gain, tag);
+                let route_failed = result.is_ok()
+                    && match (route_clip, tag) {
+                        (Some(route_clip), Some(tag)) => {
+                            self.route_play(route_clip, gain, tag).is_err()
+                        }
+                        _ => false,
+                    };
+                if route_failed
+                    && let Some(metrics) = &self
+                        .shared
+                        .route
+                        .read()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .2
+                {
+                    metrics.clip_errors.fetch_add(1, Ordering::Relaxed);
+                }
+                let _ = reply.send(result);
             }
             Message::StopAll { reply } => {
                 let result = match self.session.as_mut() {
@@ -460,9 +765,11 @@ impl Worker {
                     }
                     None => Ok(()),
                 };
+                self.stop_route_voices(None);
                 let _ = reply.send(result);
             }
             Message::StopTag { tag, reply } => {
+                self.stop_route_voices(Some(tag));
                 let _ = reply.send(self.stop_tag(tag));
             }
             Message::Playing { tag, reply } => {
@@ -494,6 +801,50 @@ impl Worker {
                 if matches!(self.state(), EngineState::Failed(_)) {
                     self.attempt = 0;
                     self.open();
+                }
+            }
+            Message::StartRoute { devices, reply } => {
+                let _ = reply.send(self.start_route(devices));
+            }
+            Message::StopRoute { reply } => {
+                self.stop_route();
+                let _ = reply.send(Ok(()));
+            }
+            Message::RoutePlay {
+                clip,
+                gain,
+                tag,
+                reply,
+            } => {
+                let _ = reply.send(self.route_play(clip, gain, tag));
+            }
+            Message::SetLocalOutput { id, reply } => {
+                let result =
+                    if self.route_devices.as_ref().is_some_and(|route| {
+                        id.as_deref() == Some(route.virtual_output_id.as_str())
+                    }) {
+                        Err(EngineError::Unavailable)
+                    } else {
+                        let previous = self.selected_output.clone();
+                        self.selected_output = id;
+                        self.session = None;
+                        self.shared.set_mixer_stats(None);
+                        self.open();
+                        if matches!(self.state(), EngineState::Running) {
+                            Ok(())
+                        } else {
+                            self.selected_output = previous;
+                            self.session = None;
+                            self.shared.set_mixer_stats(None);
+                            self.open();
+                            Err(EngineError::Unavailable)
+                        }
+                    };
+                let _ = reply.send(result);
+            }
+            Message::RouteStream { generation, event } => {
+                if generation == self.route_generation && !matches!(event, StreamEvent::Xrun) {
+                    self.fail_route(FailureReason::NoDevice);
                 }
             }
             Message::Stream { generation, event } => {
@@ -645,11 +996,38 @@ impl Worker {
     fn tick(&mut self) {
         let now = Instant::now();
         self.sync_voices();
+        let route_failed = {
+            let shared = self
+                .shared
+                .route
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            shared
+                .2
+                .as_ref()
+                .is_some_and(|stats| stats.failed.load(Ordering::Acquire))
+        };
+        if route_failed {
+            self.fail_route(FailureReason::NoDevice);
+        }
+        self.sync_route_voices();
         if self.retry_at.is_some_and(|at| at <= now) {
             self.open();
         }
         if now >= self.next_poll {
             self.poll_default_output();
+            // CoreAudio enumeration can briefly omit a healthy device. Require several
+            // consecutive misses; stream errors still stop routing immediately.
+            if let Some(devices) = self.route_devices.as_ref() {
+                if self.backend.route_devices_available(devices) {
+                    self.missing_route_device_polls = 0;
+                } else {
+                    self.missing_route_device_polls += 1;
+                    if self.missing_route_device_polls >= 3 {
+                        self.fail_route(FailureReason::NoDevice);
+                    }
+                }
+            }
             self.next_poll = Instant::now() + self.config.poll_interval;
         }
     }
@@ -658,6 +1036,17 @@ impl Worker {
     /// periodically as well.
     fn poll_default_output(&mut self) {
         let current = self.backend.default_output_id();
+        if self
+            .route_devices
+            .as_ref()
+            .is_some_and(|route| current.as_deref() == Some(route.virtual_output_id.as_str()))
+            && self.selected_output.is_none()
+        {
+            self.fail_route(FailureReason::Unsupported);
+        }
+        if self.selected_output.is_some() {
+            return;
+        }
         let changed = current != self.last_default;
         match (&self.session, self.state()) {
             (Some(_), _) if changed => {
@@ -690,7 +1079,13 @@ impl Worker {
             handle_slot = Some(handle);
             Box::new(move |out: &mut [f32]| mixer.render(out)) as super::backend::RenderFn
         };
-        match self.backend.open_default_output(&mut make_render, sink) {
+        let opened = match &self.selected_output {
+            Some(id) => self
+                .backend
+                .open_selected_output(id, &mut make_render, sink),
+            None => self.backend.open_default_output(&mut make_render, sink),
+        };
+        match opened {
             Ok((stream, format)) => {
                 let Some(handle) = handle_slot else {
                     // A backend that never asked for the callback did not start a usable stream.

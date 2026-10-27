@@ -42,6 +42,9 @@ pub enum AppError {
     AudioBusy,
     /// Reading the OS audio-device list failed; local playback may still work.
     DeviceDiscoveryFailed,
+    RoutingDeviceUnavailable,
+    RoutingPermissionDenied,
+    RoutingUnsupported,
     SoundNotFound,
     /// A setting or sound option is outside its range or names an unsupported choice.
     InvalidSetting,

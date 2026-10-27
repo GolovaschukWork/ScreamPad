@@ -10,6 +10,7 @@ export function ChoiceSelect({
   options,
   onChange,
   className,
+  disabled,
 }: {
   id?: string;
   ariaLabel?: string;
@@ -17,9 +18,11 @@ export function ChoiceSelect({
   options: ChoiceOption[];
   onChange: (value: string) => void;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <Select
+      disabled={disabled}
       value={value}
       items={options}
       onValueChange={(next) => {

@@ -6,7 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::backend::{
-    AudioBackend, BackendError, EventSink, OutputFormat, RenderFn, RunningStream, StreamEvent,
+    AudioBackend, BackendError, EventSink, OpenRouteResult, OutputFormat, RenderFn, RouteDevices,
+    RouteMetrics, RunningStream, StreamEvent,
 };
 
 pub const STEREO_48K: OutputFormat = OutputFormat {
@@ -25,6 +26,10 @@ pub struct FakeShared {
     pub default_id: Mutex<Option<String>>,
     render: Mutex<Option<(RenderFn, OutputFormat)>>,
     sink: Mutex<Option<EventSink>>,
+    route_render: Mutex<Option<(RenderFn, OutputFormat)>>,
+    route_sink: Mutex<Option<EventSink>>,
+    route_error: Mutex<Option<BackendError>>,
+    route_missing_polls: AtomicUsize,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -43,6 +48,10 @@ impl FakeShared {
             default_id: Mutex::new(Some("speakers".to_owned())),
             render: Mutex::new(None),
             sink: Mutex::new(None),
+            route_render: Mutex::new(None),
+            route_sink: Mutex::new(None),
+            route_error: Mutex::new(None),
+            route_missing_polls: AtomicUsize::new(0),
         })
     }
 
@@ -80,6 +89,32 @@ impl FakeShared {
         lock(&self.sink).clone()
     }
 
+    pub fn pump_route(&self, frames: usize) -> Option<Vec<f32>> {
+        let mut guard = lock(&self.route_render);
+        let (render, format) = guard.as_mut()?;
+        let mut out = vec![9.0; frames * usize::from(format.channels)];
+        render(&mut out);
+        Some(out)
+    }
+
+    pub fn emit_route(&self, event: StreamEvent) {
+        if let Some(sink) = lock(&self.route_sink).clone() {
+            sink(event);
+        }
+    }
+
+    pub fn fail_next_route_with(&self, error: BackendError) {
+        *lock(&self.route_error) = Some(error);
+    }
+
+    pub fn miss_route_devices_for_polls(&self, polls: usize) {
+        self.route_missing_polls.store(polls, Ordering::SeqCst);
+    }
+
+    pub fn remaining_route_device_misses(&self) -> usize {
+        self.route_missing_polls.load(Ordering::SeqCst)
+    }
+
     /// Raises a stream event as the audio API's error callback would.
     pub fn emit(&self, event: StreamEvent) {
         let sink = lock(&self.sink).clone();
@@ -92,8 +127,17 @@ impl FakeShared {
 pub struct FakeBackend(pub Arc<FakeShared>);
 
 struct FakeStream(Arc<FakeShared>);
+struct FakeRouteStream(Arc<FakeShared>);
 
 impl RunningStream for FakeStream {}
+impl RunningStream for FakeRouteStream {}
+
+impl Drop for FakeRouteStream {
+    fn drop(&mut self) {
+        self.0.streams_alive.fetch_sub(1, Ordering::SeqCst);
+        *lock(&self.0.route_render) = None;
+    }
+}
 
 impl Drop for FakeStream {
     fn drop(&mut self) {
@@ -126,5 +170,49 @@ impl AudioBackend for FakeBackend {
 
     fn default_output_id(&mut self) -> Option<String> {
         lock(&self.0.default_id).clone()
+    }
+
+    fn open_selected_output(
+        &mut self,
+        id: &str,
+        make_render: &mut dyn FnMut(OutputFormat) -> RenderFn,
+        events: EventSink,
+    ) -> Result<(Box<dyn RunningStream>, OutputFormat), BackendError> {
+        if id == "virtual" {
+            return Err(BackendError::Unsupported);
+        }
+        self.open_default_output(make_render, events)
+    }
+
+    fn open_route(
+        &mut self,
+        devices: &RouteDevices,
+        make_render: &mut dyn FnMut(OutputFormat) -> RenderFn,
+        events: EventSink,
+    ) -> OpenRouteResult {
+        if let Some(error) = lock(&self.0.route_error).take() {
+            return Err(error);
+        }
+        if devices.microphone_id == devices.virtual_output_id {
+            return Err(BackendError::Unsupported);
+        }
+        let format = STEREO_48K;
+        *lock(&self.0.route_render) = Some((make_render(format), format));
+        *lock(&self.0.route_sink) = Some(events);
+        self.0.streams_alive.fetch_add(1, Ordering::SeqCst);
+        Ok((
+            Box::new(FakeRouteStream(Arc::clone(&self.0))),
+            format,
+            Arc::new(RouteMetrics::default()),
+        ))
+    }
+
+    fn route_devices_available(&mut self, _devices: &RouteDevices) -> bool {
+        self.0
+            .route_missing_polls
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_err()
     }
 }

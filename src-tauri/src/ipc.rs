@@ -20,6 +20,11 @@ pub fn builder<R: tauri::Runtime>() -> Builder<R> {
             commands::playback::playing_sounds,
             commands::playback::audio_status,
             commands::playback::retry_audio,
+            commands::routing::call_routing_status,
+            commands::routing::start_call_routing,
+            commands::routing::stop_call_routing,
+            commands::routing::set_local_monitor_output,
+            commands::routing::open_audio_installer,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::settings::set_sound_options

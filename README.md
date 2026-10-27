@@ -4,6 +4,8 @@ ScreamPad is a local-first desktop soundboard for Windows 11 x64 and macOS 14+ (
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md), [architecture](docs/architecture/overview.md), and the [Accepted ADRs](docs/architecture/decisions/README.md). ScreamPad is licensed under [GPL-3.0-only](LICENSE). Publisher identity, domain, and the production bundle identifier remain undecided. Do not publicly distribute a release before the dependency/license audit and the other release gates are complete.
 
+For the macOS development build, see [How to use ScreamPad with Discord](docs/user-guide/discord-macos.md). It distinguishes local routing checks from a verified call with a remote participant.
+
 ## AI development
 
 - Codex: `AGENTS.md`, `.agents/skills/`, and `.codex/`.

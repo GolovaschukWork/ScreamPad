@@ -57,6 +57,10 @@ Use the existing `SettingsSection`/`SettingsRow`, Base UI controls, Tailwind sem
 - Keep the UI within the existing Tailwind/Base UI design system, EN/UK localization and Dark/Light/System themes. Never install a driver or request administrator privileges in-app.
 - Describe typed IPC and any external-link dependency/permission in an implementation plan before changing them. Backend discovery and frontend onboarding are separate reviewable changes and draft PRs; neither may merge automatically.
 
+## Owner UX revision (2026-10-27)
+
+The normal Audio Routing view asks only for a physical microphone and local headphones/speakers. After discovery, ScreamPad uses its own compatible device by stable UID if present, otherwise the sole compatible device reported as virtual. It never auto-selects a physical output or guesses from a provider's display name. Multiple third-party virtual outputs and unclassified devices still require an explicit one-time choice; this exception preserves provider-neutral manual selection. The detected route name is shown so the user can choose the matching input in the chat application. Refresh, setup, Start and Stop remain available. This revision changes only the presentation and selection policy, not the discovery, microphone-consent or release boundaries above.
+
 ## Validation for a later implementation
 
 - Unit/component tests: local playback stays enabled in setup-required, scanning and error states; detected and verified wording differ; stale refresh responses are ignored; a missing selected device becomes unavailable; links use the fixed official URLs; keyboard and screen-reader states are exposed; EN/UK catalogs have parity.

@@ -38,6 +38,16 @@ fn export_bindings() {
     builder::<tauri::Wry>()
         .export(Typescript::default().header("// @ts-nocheck"), path)
         .expect("bindings export failed");
+    // Specta emits spaces after union separators before doc comments. Keep generated bindings
+    // deterministic and free of trailing whitespace without editing the generated file by hand.
+    let generated = std::fs::read_to_string(path).expect("read generated bindings");
+    let normalized = generated
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    std::fs::write(path, normalized).expect("normalize generated bindings");
 }
 
 /// The webview's own origin. A remote origin is rejected by Tauri's ACL for custom commands, by design.

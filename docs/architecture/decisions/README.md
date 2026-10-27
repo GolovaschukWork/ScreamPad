@@ -13,11 +13,11 @@ Accepted decisions:
 - 0010 Application settings and per-sound playback options (schema 2)
 - 0011 UI stack (Tailwind v4, shadcn/ui on Base UI, Lucide, Sonner)
 - 0012 Frontend component tests (Vitest) and in-app navigation without a router
+- 0013 Microphone and virtual output routing (macOS production integration authorized; runtime validation open)
 - 0014 Virtual audio device onboarding (macOS, provider-neutral discovery and guided setup)
 - 0016 macOS integrated audio component (optional ScreamPad-branded GPL BlackHole build; distribution and privileged installation separately gated)
 
 Proposed (awaiting owner decision):
-- 0013 Microphone and virtual output routing (prototype and real-device measurements pending)
 - 0015 Integrated call audio routing (macOS guided virtual-device setup; Windows existing-microphone feasibility)
 
 Future ADRs required for: URL providers, FFmpeg distribution, non-destructive edit schema, dependency compliance and signing provider. The owner selected GPL-3.0-only for ScreamPad on 2026-10-26; distribution compliance remains open.

@@ -4,6 +4,8 @@
 - Date: 2026-10-26
 - Owner: project owner
 
+The owner authorized the macOS production route in ADR 0013 on 2026-10-26. This record remains Proposed for the broader cross-platform experience, especially Windows injection and distribution; it no longer blocks the scoped macOS integration. ADR 0016 still gates public distribution of the branded driver.
+
 ## Context
 
 The owner wants a user to install ScreamPad, add a sound, click it, and have people in a call hear it without separately downloading BlackHole or repeatedly choosing an input device. Local playback must remain usable without any call-routing component.
@@ -71,7 +73,7 @@ The fallback would expose a separate input device and require one-time selection
 - A dated [platform feasibility note](../../engineering/integrated-call-routing-feasibility.md) records source-backed macOS installation constraints and Windows APO device-targeting limits. It does not select a production component.
 - macOS arm64: the [unsigned ScreamPad Audio 2ch runtime prototype](../../engineering/screampad-audio-2ch-runtime-prototype.md) enumerated alongside original BlackHole. Its virtual input carried a clip, and the owner heard clip-only speech in Discord Mic Test. Mic-only voice was continuously audible, but two combined runs had audible voice only during phrase segments, even with a quiet clip and long pauses. A separate level-only measurement showed signal at the virtual input during clip pauses; Discord processing is suspected but unproven. An earlier tone-based Mic Test heard nothing. Local monitoring failed after a device error. These observations do not verify a remote call recipient or release readiness.
 - Signed/notarized distribution, macOS 14 and Intel runtime, upgrade/repair/removal/rollback, long-duration drift, local monitoring, remote Discord/Meet recipients, and Windows 11 audio processing are **NOT VERIFIED**.
-- This Proposed ADR authorizes no production routing, installer, driver, permission, dependency or system-default change by itself.
+- This Proposed ADR does not authorize Windows production routing or public driver distribution by itself. The owner's 2026-10-26 task authorization covers the scoped macOS routing implementation and microphone permission in ADR 0013. System defaults remain unchanged.
 
 ## Sources
 
